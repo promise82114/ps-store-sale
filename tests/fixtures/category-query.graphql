@@ -1,0 +1,107 @@
+# Public query snapshot from official Store scripts, 2026-10-20.
+# Offline hash regression only; never used as a runtime fallback.
+
+fragment personalizedMetaFragment on PersonalizedMeta {
+  hasMediaOverrides
+  media {
+    role
+    type
+    url
+  }
+}
+
+fragment priceFragment on SkuPrice {
+  basePrice
+  discountedPrice
+  discountText
+  isFree
+  isExclusive
+  isTiedToSubscription
+  serviceBranding
+  upsellServiceBranding
+  upsellText
+  includesBundleOffer
+  telemetryData
+}
+
+query categoryGridRetrieve($id: ID!, $pageArgs: PageArgs, $sortBy: CategorySortingOptionInput, $facetOptions: [String], $filterBy: [String], $maxResults: Int) {
+  categoryGridRetrieve(
+    id: $id
+    pageArgs: $pageArgs
+    sortBy: $sortBy
+    facetOptions: $facetOptions
+    filterBy: $filterBy
+    maxResults: $maxResults
+  ) {
+    id
+    sortedBy {
+      name
+      isAscending
+      displayName
+    }
+    sortingOptions {
+      name
+      isAscending
+      displayName
+    }
+    facetOptions {
+      name
+      displayName
+      values {
+        displayName
+        count
+        key
+      }
+    }
+    pageInfo {
+      totalCount
+      offset
+      size
+      isLast
+    }
+    products {
+      id
+      name
+      npTitleId
+      telemetryData
+      price {
+        ...priceFragment
+      }
+      platforms
+      localizedStoreDisplayClassification
+      storeDisplayClassification
+      media {
+        type
+        url
+        role
+      }
+      personalizedMeta {
+        ...personalizedMetaFragment
+      }
+      skus {
+        type
+      }
+    }
+    concepts {
+      id
+      name
+      telemetryData
+      media {
+        type
+        url
+        role
+      }
+      personalizedMeta {
+        ...personalizedMetaFragment
+      }
+      price {
+        ...priceFragment
+      }
+      products {
+        id
+      }
+    }
+    localizedName
+    reportingName
+  }
+}

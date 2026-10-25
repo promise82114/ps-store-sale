@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="zh-Hant">
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<meta name="referrer" content="strict-origin-when-cross-origin">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' https://accounts.google.com/gsi/; img-src 'self' https://image.api.playstation.com https://gmedia.playstation.com; script-src 'self' https://accounts.google.com/gsi/client; frame-src https://accounts.google.com/gsi/; style-src 'self' https://accounts.google.com/gsi/style; object-src 'none'; base-uri 'none'">
+<meta name="description" content="整合台灣 PlayStation Store 優惠活動，依各活動期間搜尋、排序並保存個人追蹤清單。">
+<title>PS 優惠探索</title>
+<link rel="stylesheet" href="./style.css">
+<header class="topbar"><a class="brand" href="./"><span class="brand-icon">P<span>S</span></span><span>PS 優惠探索<small>PLAYSTATION · TAIWAN</small></span></a><div class="header-actions"><span class="local-tag">台灣商店</span><button id="google-open" type="button" aria-haspopup="dialog">Google 登入</button></div></header>
+<main>
+  <section class="intro"><div><p class="eyebrow">找到值得入手的下一款遊戲</p><h1 id="activity-heading">優惠活動</h1><p class="subtitle" id="activity-period">跨活動搜尋，保留每個版本，整理你想追蹤的優惠。</p></div><div class="intro-number"><strong id="total">—</strong><span>個不重複商品</span></div></section>
+  <div id="notice" class="notice" role="status" aria-live="polite">正在載入最新商品資料…</div>
+  <nav id="campaigns" class="campaigns" aria-label="優惠活動"></nav>
+  <section class="workspace" aria-label="商品清單">
+    <div class="filters"><label class="search"><span>搜尋</span><input id="search" type="search" placeholder="搜尋遊戲名稱或商品 ID" autocomplete="off"></label><label>活動範圍<select id="campaign-scope"><option value="active">進行中活動</option><option value="all">所有活動（含歷史）</option></select></label><label>平台<select id="platform"><option value="">所有平台</option><option>PS5</option><option>PS4</option></select></label><label>排序<select id="sort"><option value="name">名稱 A → Z</option><option value="price">價格由低到高</option><option value="discount">折扣由高到低</option></select></label></div>
+    <div class="list-heading"><div class="status-tabs" role="group" aria-label="個人分類"><button data-status="" aria-pressed="true">全部</button><button data-status="tracked" aria-pressed="false">追蹤 <span id="tracked-count">0</span></button><button data-status="ignored" aria-pressed="false">忽略 <span id="ignored-count">0</span></button><button data-status="unclassified" aria-pressed="false">未分類</button></div><span id="result-count">—</span></div>
+    <div id="products" class="products" aria-live="polite"></div>
+    <div id="empty" class="empty" hidden><strong id="empty-title">沒有符合條件的商品</strong><p id="empty-description">試試其他關鍵字，或重設篩選條件。</p><button id="reset">重設篩選</button></div>
+    <nav id="pagination" class="pagination" aria-label="商品分頁"></nav>
+  </section>
+  <footer><div><strong>你的清單，保留在這裡。</strong><p>追蹤與忽略僅儲存在此瀏覽器。活動更新不會清除標記；建議定期匯出備份。</p></div><div class="backup-actions"><button id="import" disabled>匯入個人備份</button><button id="export" disabled>匯出個人標記</button><button id="recovery" hidden>匯出匯入前備份</button><input id="import-file" type="file" accept=".json,application/json" hidden></div><p id="updated" class="updated"></p><p class="disclaimer">價格為擷取時的公開資訊，實際價格與適用條件以 PlayStation Store 為準。個人優惠整理工具，非 PlayStation 官方網站；雲端同步暫緩。</p></footer>
+</main>
+<template id="product-card"><article class="card"><a class="cover-link" target="_blank" rel="noopener noreferrer"><img class="cover" loading="lazy" alt=""><span class="discount"></span></a><div class="card-content"><div class="platforms"></div><h2><a target="_blank" rel="noopener noreferrer"></a></h2><p class="price"><strong></strong><del></del></p><p class="membership"></p><div class="card-actions"><button class="track" aria-pressed="false">☆ 追蹤</button><button class="ignore" aria-pressed="false">忽略</button></div></div></article></template>
+<dialog id="import-dialog"><h2>匯入個人備份</h2><p id="import-summary"></p><p>兩端獨有標記會保留，取消標記的紀錄也會保留；不匯入雲端綁定或同步狀態。</p><label>發生衝突時<select id="import-choice"><option value="local">保留目前本機標記</option><option value="remote">採用匯入備份的標記</option></select></label><p>確認前若其他分頁修改了標記，本次預覽會失效，須重新選取檔案。匯入前資料會另存一份復原備份。</p><div class="backup-actions"><button id="import-cancel">取消</button><button id="import-confirm">確認合併匯入</button></div></dialog>
+<dialog id="google-dialog" aria-labelledby="google-title"><h2 id="google-title">Google 登入測試</h2><p id="google-status" role="status" aria-live="polite">尚未連接 Google。先啟用登入服務，再按登入選擇帳號。</p><p class="google-note">沿用既有共用授權，這次只確認登入。雲端同步尚未啟用，追蹤與忽略仍保存在此瀏覽器。</p><div class="backup-actions"><button id="google-connect" type="button">啟用 Google 登入</button><button id="google-disconnect" type="button" hidden>中斷連接</button><button id="google-close" type="button">關閉</button></div></dialog>
+<script src="./shared/google-auth.js"></script>
+<script src="./cloud-config.js"></script>
+<script type="module" src="./app.mjs"></script>
+</html>

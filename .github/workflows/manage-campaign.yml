@@ -1,0 +1,111 @@
+name: Manage one sale campaign
+
+on:
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: 'add 新增並抓一次；edit 只改資料；refetch 重抓指定活動；archive/restore 停用/恢復'
+        type: choice
+        required: true
+        default: add
+        options: [add, edit, refetch, archive, restore]
+      campaign_id:
+        description: 活動 Category ID 或完整台灣活動第一頁網址
+        type: string
+        required: true
+      name:
+        description: 活動名稱（add 必填；edit 空白保持原值）
+        type: string
+        required: false
+      starts_at:
+        description: '開始時間，台灣時間 YYYY-MM-DD HH:mm（add 必填）'
+        type: string
+        required: false
+      ends_at:
+        description: '停止顯示的時刻，台灣時間 YYYY-MM-DD HH:mm（add 必填；不含此時刻）'
+        type: string
+        required: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ps-store-sale-pages
+  cancel-in-progress: false
+
+jobs:
+  manage:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout latest main
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          persist-credentials: true
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+      - name: Install locked dependency
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Run offline regression tests
+        run: npm test
+      - name: Apply operation to this campaign only
+        id: manage
+        env:
+          CAMPAIGN_OPERATION: ${{ inputs.operation }}
+          CAMPAIGN_ID: ${{ inputs.campaign_id }}
+          CAMPAIGN_NAME: ${{ inputs.name }}
+          CAMPAIGN_START: ${{ inputs.starts_at }}
+          CAMPAIGN_END: ${{ inputs.ends_at }}
+        run: npm run campaign:manage
+      - name: Validate the resulting public site
+        run: npm run build
+      - name: Persist campaign settings and complete snapshots
+        env:
+          UPDATED_CAMPAIGN_ID: ${{ steps.manage.outputs.campaign_id }}
+        run: |
+          git fetch origin main --no-tags
+          if [ "$(git rev-parse HEAD)" != "$(git rev-parse origin/main)" ]; then
+            echo 'main changed during this operation; nothing will be pushed. Retry from latest main.'
+            exit 1
+          fi
+          git add -- data/campaigns.json "data/campaign-snapshots/$UPDATED_CAMPAIGN_ID.json" data/catalog.json data/refresh-status.json
+          if ! git diff --cached --quiet; then
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git commit -m 'data: 保存手動活動設定與完整快照'
+            git push origin HEAD:main
+          fi
+      - name: Upload generated site after data has been saved
+        uses: actions/upload-pages-artifact@7b1f4a764d45c48632c6b24a0339c27f5614fb0b # v4
+        with:
+          path: artifacts/site
+      - name: Save public fetch diagnostics
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: campaign-operation-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/campaign-management/
+          retention-days: 7
+          if-no-files-found: ignore
+  deploy:
+    needs: manage
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Configure Pages
+        uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5
+      - name: Deploy the saved campaign update
+        id: deployment
+        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4
