@@ -8,7 +8,7 @@ import { loadSavedState } from '../src/campaign-store.mjs';
 export const root = fileURLToPath(new URL('../', import.meta.url));
 export const siteFiles = Object.freeze([
   'index.html', 'app.mjs', 'style.css', '.nojekyll', 'build-info.json',
-  'cloud-config.js', 'shared/google-auth.js', 'src/google-login.mjs',
+  'cloud-config.js', 'shared/google-auth.js', 'src/google-login.mjs', 'src/personal-list.mjs',
   'data/catalog.json', 'data/refresh-status.json', 'src/catalog.mjs', 'src/campaigns.mjs',
   ...['personal-data', 'merge', 'sync-state', 'indexeddb-store', 'drive-transport'].map(name => `src/poc04/${name}.mjs`),
 ]);

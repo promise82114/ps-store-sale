@@ -1,4 +1,5 @@
 import * as state from './sync-state.mjs';
+import { productInfo, rememberProductInfo } from '../personal-list.mjs';
 
 export class StorageError extends Error {
   constructor(code) { super(code); this.code = code; }
@@ -19,7 +20,7 @@ export async function openPersonalStore({ factory = globalThis.indexedDB,
     request.onsuccess = () => { if (blocked) request.result.close(); else resolve(request.result); };
   });
   db.onversionchange = () => db.close();
-  function transaction(mutator, backup = false) {
+  function transaction(mutator, backup = false, product = null) {
     return new Promise((resolve, reject) => {
       let tx, result, failure;
       try {
@@ -37,6 +38,13 @@ export async function openPersonalStore({ factory = globalThis.indexedDB,
               if (backup && JSON.stringify(current.document) !== JSON.stringify(validated.document))
                 store.put(current.document, 'before-import');
               store.put(validated, 'personal');
+              if (product) {
+                const infoRequest = store.get('product-info');
+                infoRequest.onsuccess = () => {
+                  try { store.put(rememberProductInfo(infoRequest.result, [product], validated.document.data.marks), 'product-info'); }
+                  catch { failure = new StorageError('STORAGE_TRANSACTION_FAILED'); tx.abort(); }
+                };
+              }
             }
           } catch (error) {
             failure = typeof error.code === 'string' ? error : new StorageError('STORAGE_TRANSACTION_FAILED');
@@ -48,6 +56,33 @@ export async function openPersonalStore({ factory = globalThis.indexedDB,
   }
   try { await transaction(value => value); } catch (error) { db.close(); throw error; }
   const adapter = { read: () => transaction(), close: () => db.close() };
+  // Separate metadata record in the existing store: no personal schema/version change.
+  function productCache(products) {
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('state', products ? 'readwrite' : 'readonly'), store = tx.objectStore('state');
+      let current, cached, result, loaded = 0, failure;
+      const finish = () => {
+        if (++loaded !== 2) return;
+        try {
+          const marks = state.validateState(current ?? state.emptyState()).document.data.marks;
+          result = rememberProductInfo(cached, products ?? [], marks);
+          if (products && JSON.stringify(result) !== JSON.stringify(cached ?? {})) store.put(result, 'product-info');
+        } catch { failure = new StorageError('STORAGE_TRANSACTION_FAILED'); tx.abort(); }
+      };
+      const personalRequest = store.get('personal'), infoRequest = store.get('product-info');
+      personalRequest.onsuccess = () => { current = personalRequest.result; finish(); };
+      infoRequest.onsuccess = () => { cached = infoRequest.result; finish(); };
+      tx.oncomplete = () => resolve(structuredClone(result));
+      tx.onabort = () => reject(failure ?? new StorageError('STORAGE_TRANSACTION_FAILED'));
+      tx.onerror = () => {};
+    });
+  }
+  adapter.readProductInfo = () => productCache();
+  adapter.rememberProducts = products => productCache(products);
+  adapter.classifyProduct = (product, ...args) => {
+    const info = productInfo(product);
+    return transaction(value => state.classify(value, info.key, ...args), false, info);
+  };
   adapter.importBackup = (...args) => transaction(value => state.mergeLocalBackup(value, ...args), true);
   adapter.readImportBackup = () => new Promise((resolve, reject) => {
     const tx = db.transaction('state', 'readonly'); let backup = null;
