@@ -1,5 +1,5 @@
 import { createDocument, exportBackup, requireData, setClassification, validateDocument,
-  validateId } from './personal-data.mjs';
+  validateId, validateKey } from './personal-data.mjs';
 import { planMerge, resolveMerge } from './merge.mjs';
 import { validateFile } from './drive-transport.mjs';
 
@@ -85,6 +85,22 @@ export function classify(state, key, status, metadata) {
   next.document = document;
   next.outbox[key] = { changeId: record(document, key).changeId, localRevision: bump(next) };
   return next;
+}
+// Capture both sides of one manual action; undo writes a fresh compensating mark.
+export function toggleClassification(input, key, status, metadata) {
+  requireData(['tracked', 'ignored'].includes(status), 'INVALID_STATUS');
+  validateKey(key);
+  const current = validateState(input), before = copy(record(current.document, key));
+  const next = classify(current, key, before?.status === status ? 'unclassified' : status, metadata);
+  return { state: next, undo: { key, before, after: copy(record(next.document, key)) } };
+}
+export function undoClassification(input, undo, metadata) {
+  const current = validateState(input);
+  validateKey(undo?.key);
+  const actual = record(current.document, undo.key), expected = undo.after;
+  requireData(actual && expected && actual.changeId === expected.changeId
+    && actual.updatedAt === expected.updatedAt && actual.status === expected.status, 'STALE_UNDO');
+  return classify(current, undo.key, undo.before?.status ?? 'unclassified', metadata);
 }
 export function planLocalBackup(state, incoming) {
   const current = validateState(state);

@@ -13,6 +13,50 @@ async function staged(remote = fixture(), decisions = config.decisions) {
   const value = state.stage(state.begin(edited(), id(100)), id(100), expected, { ...config, decisions });
   return { value, backend, drive };
 }
+for (const previous of ['unclassified', 'tracked', 'ignored']) for (const action of ['tracked', 'ignored'])
+  test(`manual ${previous} to ${action} toggles atomically and undoes with a fresh operation`, () => {
+    const original = previous === 'unclassified' ? state.emptyState() : state.classify(state.emptyState(), a, previous, { changeId: id(1), updatedAt: 1 });
+    const saved = structuredClone(original);
+    const changed = state.toggleClassification(original, a, action, { changeId: id(2), updatedAt: 2 });
+    assert.equal(changed.state.document.data.marks[a]?.status ?? 'unclassified', previous === action ? 'unclassified' : action);
+    const restored = state.undoClassification(changed.state, changed.undo, { changeId: id(3), updatedAt: 3 });
+    assert.equal(restored.document.data.marks[a]?.status ?? 'unclassified', previous);
+    assert.equal(restored.outbox[a].changeId, id(3));
+    assert.equal(restored.localRevision, changed.state.localRevision + 1);
+    if (previous === 'unclassified') assert.equal(restored.document.data.tombstones[a].changeId, id(3));
+    else assert.equal(restored.document.data.marks[a].changeId, id(3));
+    assert.deepEqual(original, saved); state.validateState(restored);
+  });
+test('undo rejects a later change on the same product without overwriting it', () => {
+  const changed = state.toggleClassification(state.emptyState(), a, 'ignored', { changeId: id(1), updatedAt: 1 });
+  const newer = state.classify(changed.state, a, 'tracked', { changeId: id(2), updatedAt: 2 }), saved = structuredClone(newer);
+  fails(() => state.undoClassification(newer, changed.undo, { changeId: id(3), updatedAt: 3 }), 'STALE_UNDO');
+  assert.deepEqual(newer, saved);
+});
+test('undo preserves independent edits from another tab and their pending operations', () => {
+  const changed = state.toggleClassification(edited(), a, 'ignored', { changeId: id(2), updatedAt: 2 });
+  const newer = state.classify(changed.state, b, 'ignored', { changeId: id(3), updatedAt: 3 });
+  const restored = state.undoClassification(newer, changed.undo, { changeId: id(4), updatedAt: 4 });
+  assert.equal(restored.document.data.marks[a].status, 'tracked');
+  assert.deepEqual(restored.document.data.marks[b], newer.document.data.marks[b]);
+  assert.deepEqual(restored.outbox[b], newer.outbox[b]);
+});
+test('undo preserves a prepared synchronization snapshot and cannot be applied twice', () => {
+  const changed = state.toggleClassification(edited(), a, 'ignored', { changeId: id(2), updatedAt: 2 });
+  const active = state.begin(changed.state, id(100));
+  const restored = state.undoClassification(active, changed.undo, { changeId: id(3), updatedAt: 3 });
+  assert.deepEqual(restored.attempt, active.attempt);
+  assert.deepEqual(restored.base, active.base); assert.deepEqual(restored.remote, active.remote);
+  fails(() => state.undoClassification(restored, changed.undo, { changeId: id(4), updatedAt: 4 }), 'STALE_UNDO');
+});
+test('undo checks the complete expected operation, not only its identifier', () => {
+  const changed = state.toggleClassification(edited(), a, 'ignored', { changeId: id(2), updatedAt: 2 });
+  for (const patch of [{ updatedAt: 999 }, { status: 'tracked' }]) {
+    const undo = structuredClone(changed.undo); Object.assign(undo.after, patch);
+    fails(() => state.undoClassification(changed.state, undo, { changeId: id(3), updatedAt: 3 }), 'STALE_UNDO');
+  }
+});
+
 test('P04-03 no-op classification does not consume a revision or replace the outbox operation', () => {
   const value = edited();
   assert.deepEqual(state.classify(value, a, 'tracked', { changeId: id(2), updatedAt: 2 }), value);

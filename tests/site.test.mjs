@@ -64,6 +64,25 @@ test('scope statistics partition products while text and checkbox filtering leav
   assert.deepEqual(classificationCounts([], marks), { total: 0, unclassified: 0, tracked: 0, ignored: 0 });
 });
 
+test('sales defaults hide ignored products without changing scope statistics', () => {
+  const catalog = catalogFixture(), keys = catalog.products.map(product => product.key);
+  const marks = { [keys[0]]: { status: 'tracked' }, [keys[1]]: { status: 'ignored' } };
+  assert.deepEqual(selectProducts(catalog, marks, { hideIgnored: true }).map(product => product.key), [keys[0], keys[2]]);
+  assert.deepEqual(classificationCounts(catalog.products, marks), { total: 3, unclassified: 1, tracked: 1, ignored: 1 });
+});
+test('explicit ignored checkbox opts in while keeping the checkbox union and search', () => {
+  const catalog = catalogFixture(), keys = catalog.products.map(product => product.key);
+  const marks = { [keys[0]]: { status: 'tracked' }, [keys[1]]: { status: 'ignored' } };
+  for (const [statuses, indexes] of [[['ignored'], [1]], [['tracked', 'ignored'], [0, 1]],
+    [['unclassified', 'ignored'], [1, 2]], [['unclassified', 'tracked', 'ignored'], [0, 1, 2]]])
+    assert.deepEqual(selectProducts(catalog, marks, { hideIgnored: true, statuses }).map(product => product.key), indexes.map(index => keys[index]));
+  assert.equal(selectProducts(catalog, marks, { hideIgnored: true, statuses: ['ignored'], search: '_00-0' }).length, 0);
+});
+test('ignored personal list remains usable with every checkbox cleared', () => {
+  const catalog = catalogFixture(), product = catalog.products[1], marks = { [product.key]: { status: 'ignored' } };
+  assert.deepEqual(selectProducts({ products: [product] }, marks, { hideIgnored: false, statuses: [] }), [product]);
+});
+
 test('release snapshot validates membership, exact activities and unique product identities', async () => {
   const catalog = JSON.parse(await readFile(new URL('../data/catalog.json', import.meta.url), 'utf8'));
   assert.equal(validateCatalog(catalog), catalog);

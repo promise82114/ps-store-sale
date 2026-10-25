@@ -28,6 +28,7 @@
   </section>
   <footer>價格與適用條件以 PlayStation Store 為準。</footer>
 </main>
+<div id="undo-bar" class="undo-bar" role="region" aria-label="上一步操作" hidden><p id="undo-label" role="status" aria-live="polite"></p><button id="undo-button" type="button">復原上一步</button></div>
 <template id="product-card"><article class="card"><a class="cover-link" target="_blank" rel="noopener noreferrer"><img class="cover" loading="lazy" alt=""><span class="discount"></span></a><div class="card-content"><div class="platforms"></div><h2><a target="_blank" rel="noopener noreferrer"></a></h2><p class="price"><strong></strong><del></del></p><p class="membership"></p><div class="card-actions"><button class="track" aria-pressed="false">☆ 追蹤</button><button class="ignore" aria-pressed="false">忽略</button></div></div></article></template>
 <dialog id="import-dialog"><h2>匯入個人備份</h2><p id="import-summary"></p><p>兩端獨有標記會保留，取消標記的紀錄也會保留；不匯入雲端綁定或同步狀態。</p><label>發生衝突時<select id="import-choice"><option value="local">保留目前本機標記</option><option value="remote">採用匯入備份的標記</option></select></label><p>確認前若其他分頁修改了標記，本次預覽會失效，須重新選取檔案。匯入前資料會另存一份復原備份。</p><div class="backup-actions"><button id="import-cancel">取消</button><button id="import-confirm">確認合併匯入</button></div></dialog>
 <dialog id="data-dialog" aria-labelledby="data-title"><div class="dialog-title"><h2 id="data-title">資料與同步</h2><button id="data-close" type="button" aria-label="關閉資料與同步">✕</button></div>

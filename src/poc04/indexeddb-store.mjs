@@ -83,6 +83,18 @@ export async function openPersonalStore({ factory = globalThis.indexedDB,
     const info = productInfo(product);
     return transaction(value => state.classify(value, info.key, ...args), false, info);
   };
+  adapter.toggleProduct = (product, status, metadata) => {
+    const info = productInfo(product); let undo;
+    return transaction(value => {
+      const changed = state.toggleClassification(value, info.key, status, metadata);
+      undo = changed.undo; return changed.state;
+    }, false, info).then(current => ({ state: current, undo }));
+  };
+  adapter.undoProduct = (product, undo, metadata) => {
+    const info = productInfo(product);
+    if (info.key !== undo?.key) throw new StorageError('INVALID_UNDO_PRODUCT');
+    return transaction(value => state.undoClassification(value, undo, metadata), false, info);
+  };
   adapter.importBackup = (...args) => transaction(value => state.mergeLocalBackup(value, ...args), true);
   adapter.readImportBackup = () => new Promise((resolve, reject) => {
     const tx = db.transaction('state', 'readonly'); let backup = null;

@@ -114,12 +114,13 @@ export function classificationCounts(products, marks) {
   }
   return counts;
 }
-export function selectProducts(catalog, marks, { search = '', campaign = '', platform = '', status = '', statuses = [], sort = 'name' } = {}) {
+export function selectProducts(catalog, marks, { search = '', campaign = '', platform = '', status = '', statuses = [], sort = 'name', hideIgnored = false } = {}) {
   const needle = search.trim().toLocaleLowerCase();
   const selectedStatuses = new Set([...(Array.isArray(statuses) ? statuses : []), ...(status ? [status] : [])]);
   const selected = catalog.products.filter(product => (!needle || `${product.name} ${product.id}`.toLocaleLowerCase().includes(needle))
     && (!campaign || product.campaignIds.includes(campaign))
     && (!platform || product.platforms?.includes(platform))
+    && (!hideIgnored || selectedStatuses.has('ignored') || marks[product.key]?.status !== 'ignored')
     && (!selectedStatuses.size || selectedStatuses.has(marks[product.key]?.status ?? 'unclassified')))
     .map(product => campaign ? { ...product, price: product.offers.find(offer => offer.campaignId === campaign)?.price ?? product.price } : product);
   const collator = new Intl.Collator('zh-Hant', { numeric: true });

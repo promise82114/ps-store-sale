@@ -1,7 +1,7 @@
 import { selectProducts, classificationCounts, validateCatalog, catalogForDisplay, buildCatalog } from './src/catalog.mjs';
 import { campaignState } from './src/campaigns.mjs';
 import { GoogleLogin } from './src/google-login.mjs';
-import { personalProducts, rememberProductInfo } from './src/personal-list.mjs';
+import { personalProducts, productInfo, rememberProductInfo } from './src/personal-list.mjs';
 import { openPersonalStore } from './src/poc04/indexeddb-store.mjs';
 import { exportBackup, importBackup, limits } from './src/poc04/personal-data.mjs';
 import { planLocalBackup } from './src/poc04/sync-state.mjs';
@@ -15,6 +15,7 @@ let savedCatalog, catalog, store, local, channel, pendingImport, lifecycleSignat
 let listMode = ['#my-list', '#tracked', '#ignored'].includes(location.hash) ? 'personal' : 'sales', productInfos = {};
 let personalKind = location.hash === '#ignored' ? 'ignored' : 'tracked';
 let catalogUnavailable = false, metadataUnavailable = false;
+let undoEntry = null, undoFeedback = '', undoTimer, markBusy = false;
 const format = number => number.toLocaleString('zh-TW');
 const googleLogin = new GoogleLogin({ Auth: globalThis.SideProjectAuth?.GoogleAuth,
   clientId: globalThis.SIDE_PROJECT_CLOUD_CONFIG?.clientId, onChange: renderGoogle });
@@ -50,6 +51,39 @@ function notice(text, error = false) {
   $('#notice').hidden = !text;
   if (error && $('#data-dialog').open) $('#data-feedback').textContent = text;
 }
+function renderUndo() {
+  const label = undoFeedback || (undoEntry ? `${undoEntry.after.status === 'tracked' ? '已追蹤' : undoEntry.after.status === 'ignored' ? '已忽略' : '已取消標記'}：${undoEntry.product.name}` : '');
+  $('#undo-bar').hidden = !label;
+  $('#undo-label').textContent = label; $('#undo-label').title = label;
+  $('#undo-button').hidden = !undoEntry;
+  $('#undo-button').disabled = markBusy || !store;
+  $('#undo-button').textContent = markBusy ? '處理中…' : '復原上一步';
+  $('#undo-button').title = undoEntry ? `復原「${undoEntry.product.name}」的上一次標記` : '';
+}
+function setMarkBusy(busy) {
+  markBusy = busy;
+  document.querySelectorAll('.card-actions button').forEach(button => { button.disabled = busy || !store; });
+  renderUndo();
+}
+function finishUndo(text) {
+  undoEntry = null; undoFeedback = text; clearTimeout(undoTimer);
+  undoTimer = setTimeout(() => { undoFeedback = ''; renderUndo(); }, 6000);
+}
+$('#undo-button').addEventListener('click', async () => {
+  if (!undoEntry || markBusy) return;
+  const entry = undoEntry; setMarkBusy(true);
+  try {
+    local = await store.undoProduct(entry.product, entry, { changeId: crypto.randomUUID(), updatedAt: Date.now() });
+    productInfos = rememberProductInfo(productInfos, [entry.product], local.document.data.marks);
+    finishUndo(`已復原：${entry.product.name}`);
+    channel?.postMessage('changed'); render();
+  } catch (error) {
+    if (error.code === 'STALE_UNDO') {
+      finishUndo(`商品已在其他操作中變更，未覆蓋新標記：${entry.product.name}`);
+      try { local = await store.read(); await rememberVisibleProducts(); render(); } catch { /* retain prior display */ }
+    } else { undoFeedback = '復原未完成，請再試一次。'; }
+  } finally { setMarkBusy(false); }
+});
 function safeUrl(value, image = false) {
   try { const url = new URL(value); return url.protocol === 'https:' && !url.username && !url.password
     && (image ? ['image.api.playstation.com', 'gmedia.playstation.com'].includes(url.hostname)
@@ -116,7 +150,7 @@ function render() {
   const marks = local?.document.data.marks ?? {}, personal = listMode === 'personal';
   const source = personal ? personalProducts(savedCatalog, marks, productInfos).filter(product => marks[product.key]?.status === personalKind) : catalog.products;
   const products = view.campaign ? source.filter(product => product.campaignIds.includes(view.campaign)) : source;
-  const selected = selectProducts({ ...catalog, products }, marks, view);
+  const selected = selectProducts({ ...catalog, products }, marks, { ...view, hideIgnored: !personal });
   const counts = classificationCounts(products, marks);
   for (const [name, selector] of [['total', '#total'], ['unclassified', '#unclassified-count'], ['tracked', '#tracked-count'], ['ignored', '#ignored-count']]) $(selector).textContent = format(counts[name]);
   $('#personal-count').textContent = format(Object.values(marks).filter(mark => mark.status === 'tracked').length);
@@ -152,21 +186,25 @@ function render() {
     for (const [selector, status, activeLabel, inactiveLabel] of [['.track', 'tracked', '★ 已追蹤', '☆ 追蹤'], ['.ignore', 'ignored', '已忽略', '忽略']]) {
       const button = card.querySelector(selector), active = marks[product.key]?.status === status;
       button.textContent = active ? activeLabel : inactiveLabel;
-      button.setAttribute('aria-pressed', String(active)); button.disabled = !store;
+      button.setAttribute('aria-pressed', String(active)); button.disabled = !store || markBusy;
       button.setAttribute('aria-label', `${active ? '取消' : ''}${status === 'tracked' ? '追蹤' : '忽略'} ${product.name}`);
       button.addEventListener('click', async () => {
-        button.disabled = true;
+        if (markBusy) return;
+        setMarkBusy(true);
         try {
-          const current = await store.read(), selectedStatus = current.document.data.marks[product.key]?.status === status ? 'unclassified' : status;
-          local = await store.classifyProduct(product, selectedStatus, { changeId: crypto.randomUUID(), updatedAt: Date.now() });
+          const changed = await store.toggleProduct(product, status, { changeId: crypto.randomUUID(), updatedAt: Date.now() });
+          local = changed.state; undoEntry = { ...changed.undo, product: productInfo(product) };
+          undoFeedback = ''; clearTimeout(undoTimer);
           productInfos = rememberProductInfo(productInfos, [product], local.document.data.marks);
           channel?.postMessage('changed'); render();
-        } catch { notice('標記儲存失敗，先前資料仍保留；請匯出備份後檢查瀏覽器儲存空間。', true); button.disabled = false; }
+        } catch { notice('標記儲存失敗，先前資料仍保留；請匯出備份後檢查瀏覽器儲存空間。', true); }
+        finally { setMarkBusy(false); }
       });
     }
     return card;
   });
   $('#products').replaceChildren(...cards);
+  renderUndo();
 }
 for (const id of ['search', 'platform', 'sort']) $(`#${id}`).addEventListener(id === 'search' ? 'input' : 'change', event => {
   view[id] = event.target.value; render();
@@ -219,6 +257,7 @@ $('#import-confirm').addEventListener('click', async () => {
   $('#import-confirm').disabled = true;
   try {
     local = await store.importBackup(pendingImport.document, pendingImport.revision, $('#import-choice').value);
+    undoEntry = null; undoFeedback = ''; clearTimeout(undoTimer);
     await rememberVisibleProducts();
     pendingImport = null; $('#import-dialog').close();
     try { $('#recovery').hidden = !(await store.readImportBackup()); } catch { /* retain prior backup availability */ }
@@ -253,5 +292,5 @@ async function start() {
   refreshDisplay();
   setInterval(() => { if (lifecycle() !== lifecycleSignature) refreshDisplay(); }, 30_000);
 }
-window.addEventListener('pagehide', () => { googleLogin.disconnect(); channel?.close(); store?.close(); });
+window.addEventListener('pagehide', () => { clearTimeout(undoTimer); googleLogin.disconnect(); channel?.close(); store?.close(); });
 await start();
