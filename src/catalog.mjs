@@ -106,12 +106,21 @@ export function discountNumber(price) {
   return match && Number(match[1]) <= 100 ? Number(match[1]) : null;
 }
 // A view only: personal marks remain independent of whichever campaigns are loaded.
-export function selectProducts(catalog, marks, { search = '', campaign = '', platform = '', status = '', sort = 'name' } = {}) {
+export function classificationCounts(products, marks) {
+  const counts = { total: products.length, unclassified: 0, tracked: 0, ignored: 0 };
+  for (const product of products) {
+    const status = marks[product.key]?.status;
+    counts[status === 'tracked' || status === 'ignored' ? status : 'unclassified']++;
+  }
+  return counts;
+}
+export function selectProducts(catalog, marks, { search = '', campaign = '', platform = '', status = '', statuses = [], sort = 'name' } = {}) {
   const needle = search.trim().toLocaleLowerCase();
+  const selectedStatuses = new Set([...(Array.isArray(statuses) ? statuses : []), ...(status ? [status] : [])]);
   const selected = catalog.products.filter(product => (!needle || `${product.name} ${product.id}`.toLocaleLowerCase().includes(needle))
     && (!campaign || product.campaignIds.includes(campaign))
     && (!platform || product.platforms?.includes(platform))
-    && (!status || (marks[product.key]?.status ?? 'unclassified') === status))
+    && (!selectedStatuses.size || selectedStatuses.has(marks[product.key]?.status ?? 'unclassified')))
     .map(product => campaign ? { ...product, price: product.offers.find(offer => offer.campaignId === campaign)?.price ?? product.price } : product);
   const collator = new Intl.Collator('zh-Hant', { numeric: true });
   const score = product => sort === 'discount' ? discountNumber(product.price) : priceNumber(product.price);

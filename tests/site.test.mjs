@@ -4,7 +4,7 @@ import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { buildCatalog, validateCatalog } from '../src/catalog.mjs';
+import { buildCatalog, classificationCounts, selectProducts, validateCatalog } from '../src/catalog.mjs';
 import { currentCampaigns } from './fixtures/campaigns.mjs';
 import { publishSnapshot } from '../src/snapshot.mjs';
 import { buildSite, siteFiles, root } from '../tools/build-site.mjs';
@@ -29,6 +29,40 @@ function catalogFixture() {
 }
 const successfulStatus = catalog => ({ state: 'success', complete: true, uniqueProductCount: catalog.uniqueProductCount,
   reports: currentCampaigns.map(campaign => ({ saleId: campaign.id, complete: true, fullValidation: 'PASS', error: null })) });
+
+test('classification checkboxes use a union and clearing every checkbox restores all products', () => {
+  const catalog = catalogFixture(), keys = catalog.products.map(product => product.key);
+  const marks = { [keys[0]]: { status: 'tracked' }, [keys[1]]: { status: 'ignored' } };
+  const before = structuredClone({ catalog, marks });
+  for (const [statuses, indexes] of [[[], [0, 1, 2]], [['tracked'], [0]], [['ignored'], [1]],
+    [['unclassified'], [2]], [['tracked', 'ignored'], [0, 1]], [['tracked', 'unclassified'], [0, 2]],
+    [['ignored', 'unclassified'], [1, 2]], [['tracked', 'ignored', 'unclassified'], [0, 1, 2]],
+    [['tracked', 'tracked'], [0]]]) {
+    assert.deepEqual(selectProducts(catalog, marks, { statuses }).map(product => product.key), indexes.map(index => keys[index]));
+  }
+  assert.deepEqual({ catalog, marks }, before);
+});
+
+test('multiple classifications still intersect with campaign, search and platform filters', () => {
+  const catalog = catalogFixture(), keys = catalog.products.map(product => product.key);
+  const marks = { [keys[0]]: { status: 'tracked' }, [keys[1]]: { status: 'ignored' } };
+  const options = { statuses: ['tracked', 'ignored'], campaign: currentCampaigns[1].id, search: '_00-1', platform: 'PS5', sort: 'price' };
+  assert.deepEqual(selectProducts(catalog, marks, options).map(product => product.key), [keys[1]]);
+  assert.equal(selectProducts(catalog, marks, { ...options, platform: 'PS4' }).length, 0);
+  assert.equal(selectProducts(catalog, marks, { ...options, statuses: ['unclassified'] }).length, 0);
+});
+
+test('scope statistics partition products while text and checkbox filtering leaves them unchanged', () => {
+  const catalog = catalogFixture(), keys = catalog.products.map(product => product.key);
+  const marks = { [keys[0]]: { status: 'tracked' }, [keys[1]]: { status: 'ignored' } };
+  const expected = { total: 3, unclassified: 1, tracked: 1, ignored: 1 };
+  assert.deepEqual(classificationCounts(catalog.products, marks), expected);
+  assert.equal(selectProducts(catalog, marks, { statuses: ['unclassified'], search: '_00-2' }).length, 1);
+  assert.deepEqual(classificationCounts(catalog.products, marks), expected);
+  assert.deepEqual(classificationCounts(catalog.products.filter(product => product.campaignIds.includes(currentCampaigns[0].id)), marks),
+    { total: 1, unclassified: 0, tracked: 1, ignored: 0 });
+  assert.deepEqual(classificationCounts([], marks), { total: 0, unclassified: 0, tracked: 0, ignored: 0 });
+});
 
 test('release snapshot validates membership, exact activities and unique product identities', async () => {
   const catalog = JSON.parse(await readFile(new URL('../data/catalog.json', import.meta.url), 'utf8'));
