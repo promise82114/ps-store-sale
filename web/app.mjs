@@ -79,9 +79,9 @@ function refreshDisplay() {
   lifecycleSignature = lifecycle();
   if (view.campaign && !catalog.campaigns.some(campaign => campaign.id === view.campaign)) view.campaign = '';
   const count = catalog.campaigns.length;
-  $('#activity-heading').textContent = count === 1 ? catalog.campaigns[0].label : count > 1 ? `${count} 個活動，一次看完。` : '目前沒有進行中的活動';
+  $('#activity-heading').textContent = count === 1 ? catalog.campaigns[0].label : count > 1 ? `${count} 個活動，一次看完。` : savedCatalog.campaigns.length ? '目前沒有進行中的活動' : '尚未新增優惠活動';
   $('#activity-period').textContent = count === 1 ? periodLabel(catalog.campaigns[0]) : '活動期間各自獨立，跨活動整理你想追蹤的優惠。';
-  if (store) notice($('#campaign-scope').value === 'all' ? '目前包含尚未開始、已結束與封存活動；價格為各次擷取的歷史資訊。'
+  if (store) notice(!savedCatalog.campaigns.length ? '尚未新增活動，完成新增後即可在這裡瀏覽優惠。' : $('#campaign-scope').value === 'all' ? '目前包含尚未開始、已結束與封存活動；價格為各次擷取的歷史資訊。'
     : count ? `${count} 個活動已載入；活動結束會自動從進行中清單退出，不重新抓取。` : '可切換「所有活動」檢視已保存的活動快照。');
   renderCampaigns(); render();
 }
@@ -96,7 +96,7 @@ function render() {
   document.querySelectorAll('[data-status]').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.status === view.status)));
   $('#empty').hidden = selected.length > 0;
   const noActivity = catalog.campaigns.length === 0, hasHistory = savedCatalog.campaigns.length > 0;
-  $('#empty-title').textContent = noActivity ? '目前沒有進行中的活動' : '沒有符合條件的商品';
+  $('#empty-title').textContent = noActivity ? hasHistory ? '目前沒有進行中的活動' : '尚未新增優惠活動' : '沒有符合條件的商品';
   $('#empty-description').textContent = noActivity ? hasHistory ? '已保存的活動仍可從歷史清單查看。' : '新增活動後，商品會顯示在這裡。' : '試試其他關鍵字，或重設篩選條件。';
   $('#reset').textContent = noActivity && hasHistory ? '查看已保存活動' : '重設篩選';
   $('#reset').hidden = noActivity && !hasHistory;

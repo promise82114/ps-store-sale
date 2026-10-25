@@ -2,6 +2,16 @@
 
 日期：2026-10-25（Asia/Taipei），目標 G:\git\ps-store-sale，Repo promise82114/ps-store-sale，main 基準 HEAD 3a2eb0b。POC 歷史及既有使用者資料保留。
 
+## 2026-10-25 清空暫填活動，留供使用者練習新增
+
+使用者要求移除缺正式名稱及期間的三個初始登錄，並自行操作 Actions 新增；沿用先前明確授權的 commit／push 與正式頁面發布。
+
+- 清空 registry，移除僅屬這三個 ID 的公開快照，從空 registry 離線重建 catalog／status，零活動、零商品。沒有抓取 PS Store 或替使用者新增活動。
+- 原資料已先備份在忽略的 artifacts/seed-campaigns-before-clear-2026-10-25T10-04-48-766Z，亦可從 99ff16b 還原。個人 IDB、Google 授權入口及備份功能不變。
+- 空清單明示「尚未新增優惠活動」，不再提示不存在的歷史資料。自然到期保留快照與個人標記，只由瀏覽器移出進行中；archive 可提前隱藏，restore 仍尊重原期間。
+- 清空後完整 170 項測試通過，靜態建置為 0 商品；本次沒有新增額外測試框架。
+- 首次正式版本 99ff16b 的 Pages Run 40179105118 已成功；線上版本 16facb0fdcddec81、HTTP 200、2243 商品與 Google 登入面板均已核對。本次接續發布空活動清單。
+
 ## 2026-10-25 首次正式發布
 
 使用者已明確授權 commit、push 及 GitHub Pages 正式發布。此次提交包含正式商品頁、手動活動管理／快照保存、共用 Google 登入及回歸測試；沿用 main，不提交 POC 的私人工作目錄、個人備份或暫存授權。
