@@ -70,8 +70,6 @@ a[aria-disabled="true"] { cursor:default; }
 .card-actions button { flex:1; padding:6px 4px; font-size:11px; }
 .track[aria-pressed="true"] { border-color:#8d7848; color:#f0d899; background:#3a3222; }
 .ignore[aria-pressed="true"] { border-color:#795461; color:#d8b4c1; background:#342630; }
-.pagination { display:flex; justify-content:center; align-items:center; gap:20px; padding:26px 0 12px; color:var(--muted); font-size:12px; }
-.pagination button { font-size:12px; }
 .empty { text-align:center; padding:65px 20px; color:var(--muted); }
 .empty strong { display:block; color:#d7e4ff; font-size:18px; font-weight:500; }
 footer { margin-top:22px; padding-top:16px; border-top:1px solid var(--line); color:#728097; font-size:10px; }
@@ -100,5 +98,5 @@ dialog label { display:block; font-size:12px; }dialog select { margin-top:8px; }
   .filters { gap:9px; padding-bottom:15px; }.filters label { font-size:10px; }.filters select { font-size:10px; padding:9px 6px; }
   .classification-filters { gap:12px; }.classification-filters label { font-size:11px; gap:5px; }.list-heading { padding:10px 0; }
   .products { grid-template-columns:repeat(2,minmax(0,1fr)); gap:14px 10px; }.card-content { padding:10px; }.card h2 { font-size:12px; min-height:39px; }.price strong { font-size:15px; }.card-actions { gap:5px; }.card-actions button { font-size:10px; }
-  .pagination { gap:13px; }.pagination button { padding:8px 10px; }dialog { padding:20px; }
+  dialog { padding:20px; }
 }

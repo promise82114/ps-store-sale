@@ -6,8 +6,8 @@ import { openPersonalStore } from './src/poc04/indexeddb-store.mjs';
 import { exportBackup, importBackup, limits } from './src/poc04/personal-data.mjs';
 import { planLocalBackup } from './src/poc04/sync-state.mjs';
 
-const $ = selector => document.querySelector(selector), pageSize = 60;
-const view = { search: '', campaign: '', platform: '', statuses: [], sort: 'name', page: 1 };
+const $ = selector => document.querySelector(selector);
+const view = { search: '', campaign: '', platform: '', statuses: [], sort: 'name' };
 const testRun = new URLSearchParams(location.search).get('testRun');
 const databaseName = /^[a-zA-Z0-9_-]{1,60}$/.test(testRun ?? '')
   ? `ps-store-sale-filter-test-${testRun}` : 'ps-store-sale-filter-v1';
@@ -67,7 +67,7 @@ function renderCampaigns() {
     button.title = campaign.id ? `${campaign.label} · ${stateLabel(campaign)} · ${periodLabel(campaign)}` : '合併重複商品';
     button.append(title, count); button.addEventListener('click', () => {
       if (listMode !== 'sales') view.statuses = [];
-      listMode = 'sales'; view.campaign = campaign.id; view.page = 1;
+      listMode = 'sales'; view.campaign = campaign.id;
       history.replaceState(null, '', location.pathname + location.search); refreshDisplay();
     }); return button;
   }));
@@ -117,7 +117,6 @@ function render() {
   const source = personal ? personalProducts(savedCatalog, marks, productInfos).filter(product => marks[product.key]?.status === personalKind) : catalog.products;
   const products = view.campaign ? source.filter(product => product.campaignIds.includes(view.campaign)) : source;
   const selected = selectProducts({ ...catalog, products }, marks, view);
-  const pages = Math.max(1, Math.ceil(selected.length / pageSize)); view.page = Math.min(view.page, pages);
   const counts = classificationCounts(products, marks);
   for (const [name, selector] of [['total', '#total'], ['unclassified', '#unclassified-count'], ['tracked', '#tracked-count'], ['ignored', '#ignored-count']]) $(selector).textContent = format(counts[name]);
   $('#personal-count').textContent = format(Object.values(marks).filter(mark => mark.status === 'tracked').length);
@@ -130,7 +129,7 @@ function render() {
   $('#empty-description').textContent = personal ? products.length ? '試試其他關鍵字，或重設篩選條件。' : `在商品卡上點「${personalKind === 'tracked' ? '追蹤' : '忽略'}」，便可加入清單。` : noActivity ? hasHistory ? '已保存的活動仍可從歷史清單查看。' : '新增活動後，商品會顯示在這裡。' : '試試其他關鍵字，或重設篩選條件。';
   $('#reset').textContent = !personal && noActivity && hasHistory ? '查看已保存活動' : '重設篩選';
   $('#reset').hidden = personal ? products.length === 0 : noActivity && !hasHistory;
-  const cards = selected.slice((view.page - 1) * pageSize, view.page * pageSize).map(product => {
+  const cards = selected.map(product => {
     const card = $('#product-card').content.firstElementChild.cloneNode(true), url = safeUrl(product.url), image = safeUrl(product.imageUrl, true);
     card.querySelector('.cover-link').setAttribute('aria-label', `檢視 ${product.name}`);
     for (const link of card.querySelectorAll('a')) {
@@ -168,31 +167,25 @@ function render() {
     return card;
   });
   $('#products').replaceChildren(...cards);
-  const previous = document.createElement('button'), next = document.createElement('button'), label = document.createElement('span');
-  previous.textContent = '← 上一頁'; next.textContent = '下一頁 →'; label.textContent = `${view.page} / ${pages}`;
-  previous.disabled = view.page === 1; next.disabled = view.page === pages;
-  previous.addEventListener('click', () => { view.page--; render(); $('.workspace').scrollIntoView({ block: 'start' }); });
-  next.addEventListener('click', () => { view.page++; render(); $('.workspace').scrollIntoView({ block: 'start' }); });
-  $('#pagination').replaceChildren(previous, label, next);
 }
 for (const id of ['search', 'platform', 'sort']) $(`#${id}`).addEventListener(id === 'search' ? 'input' : 'change', event => {
-  view[id] = event.target.value; view.page = 1; render();
+  view[id] = event.target.value; render();
 });
 document.querySelectorAll('[data-status]').forEach(input => input.addEventListener('change', () => {
-  view.statuses = [...document.querySelectorAll('[data-status]:checked')].map(checkbox => checkbox.dataset.status); view.page = 1; render();
+  view.statuses = [...document.querySelectorAll('[data-status]:checked')].map(checkbox => checkbox.dataset.status); render();
 }));
 $('#reset').addEventListener('click', () => {
-  Object.assign(view, { search: '', platform: '', statuses: [], sort: 'name', page: 1 });
+  Object.assign(view, { search: '', platform: '', statuses: [], sort: 'name' });
   for (const id of ['search', 'platform', 'sort']) $(`#${id}`).value = view[id];
   if (listMode !== 'personal' && catalog.campaigns.length === 0 && savedCatalog.campaigns.length) {
     $('#campaign-scope').value = 'all'; refreshDisplay();
   } else { renderCampaigns(); render(); }
 });
-$('#campaign-scope').addEventListener('change', () => { view.campaign = ''; view.page = 1; refreshDisplay(); });
+$('#campaign-scope').addEventListener('change', () => { view.campaign = ''; refreshDisplay(); });
 for (const [id, kind] of [['personal-view', 'tracked'], ['ignored-view', 'ignored']]) $('#'+id).addEventListener('click', () => {
   if (listMode !== 'personal' || personalKind !== kind) view.statuses = [];
   listMode = 'personal'; personalKind = kind;
-  Object.assign(view, { campaign: '', page: 1 });
+  view.campaign = '';
   history.replaceState(null, '', location.pathname + location.search + (kind === 'tracked' ? '#tracked' : '#ignored'));
   refreshDisplay();
 });

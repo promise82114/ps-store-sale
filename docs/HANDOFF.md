@@ -1,8 +1,15 @@
 # 正式頁面交接
 
-日期：2026-10-25（Asia/Taipei），目標 G:\git\ps-store-sale，Repo promise82114/ps-store-sale，main 基準 HEAD 3a2eb0b。POC 歷史及既有使用者資料保留。
+日期：2026-10-25（Asia/Taipei），目標 G:\git\ps-store-sale，Repo promise82114/ps-store-sale，main 基準 HEAD db23427。POC 歷史及既有使用者資料保留。
 
-## 2026-10-25 參照 PS Game Base 的側欄與資料面板（最新）
+## 2026-10-25 商品改為完整長列表（最新）
+
+- 依使用者要求取消商品頁數分頁，活動／追蹤／忽略清單共用完整渲染，符合目前篩選的商品一次列出，不保留 60 筆上限或載入更多按鈕。移除無用的頁碼狀態、分頁導覽與 CSS；搜尋、分類 checkbox、平台及排序保持功能。
+- 商品繼續使用已保存的 catalog，封面保留原生 loading=lazy，不額外抓活動或修改個人儲存格式、同步模組及 Actions。
+- 全套既有 Node **185 項通過**，語法與建置檢查通過。原生瀏覽器獨立 testRun 確認 2243 個商品卡同時存在、分頁控制為 0；第 76 筆仍可追蹤、篩選，切到追蹤清單後重載保留。
+- 390px 手機確認 2243 筆仍完整列出、主頁無水平溢出，能捲到最後一筆 Zombie Derby: Pixel Survival 與頁尾。畫面證據在 POC artifacts/continuous-list，未新增套件或永久測試框架。
+
+## 2026-10-25 參照 PS Game Base 的側欄與資料面板
 
 - 正式 repo 基準 main `2f7639f`，開始時乾淨。沿用使用者先前 commit／push／Pages 發布授權；參考 PS Game Base 的版面，未修改該 repo。
 - 活動導覽移至左側：0 個活動顯示空狀態，1 個只顯示該活動，複數才增加合併去重的「全部活動」。下方自訂清單分為追蹤／忽略，跨活動保存個人商品；支援 `#tracked`、`#ignored`，舊 `#my-list` 書籤導向追蹤。
