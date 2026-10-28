@@ -15,7 +15,7 @@ createServer(async (request, response) => {
     response.writeHead(200, { 'Content-Type': file.endsWith('.html') ? 'text/html; charset=utf-8'
       : file.endsWith('.css') ? 'text/css; charset=utf-8' : /\.m?js$/.test(file) ? 'text/javascript; charset=utf-8' : 'application/json',
       'Cache-Control': 'no-store', 'Referrer-Policy': 'strict-origin-when-cross-origin',
-      'Content-Security-Policy': "default-src 'self'; connect-src 'self' https://accounts.google.com/gsi/; img-src 'self' https://image.api.playstation.com https://gmedia.playstation.com; script-src 'self' https://accounts.google.com/gsi/client; frame-src https://accounts.google.com/gsi/; style-src 'self' https://accounts.google.com/gsi/style; object-src 'none'; base-uri 'none'" });
+      'Content-Security-Policy': "default-src 'self'; connect-src 'self' https://accounts.google.com/gsi/ https://www.googleapis.com/drive/ https://www.googleapis.com/upload/drive/; img-src 'self' https://image.api.playstation.com https://gmedia.playstation.com; script-src 'self' https://accounts.google.com/gsi/client; frame-src https://accounts.google.com/gsi/; style-src 'self' https://accounts.google.com/gsi/style; object-src 'none'; base-uri 'none'" });
     response.end(data);
   } catch { response.writeHead(404).end(); }
 }).listen(4186, '127.0.0.1', () => console.log(`Local preview: http://127.0.0.1:4186${prefix}`));

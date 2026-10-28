@@ -1,8 +1,20 @@
 # 正式頁面交接
 
-日期：2026-10-26（Asia/Taipei），目標 G:\git\ps-store-sale，Repo promise82114/ps-store-sale，main 基準 HEAD d23a684。POC 歷史及既有使用者資料保留。
+日期：2026-10-28（Asia/Taipei），目標 G:\git\ps-store-sale，Repo promise82114/ps-store-sale，main 基準 HEAD 6266081。POC 歷史及既有使用者資料保留。
 
-## 2026-10-26 主頁預設隱藏忽略與復原上一步（最新）
+## 2026-10-28 Google Drive 手動雲端存檔（最新）
+
+- 使用者回報正式 Google 授權正常，要求實作雲端存檔匯入／匯出。本次沿用現有本機優先工作區及已授權的 commit／push／Pages 流程；僅手動操作，不開背景同步或排程，不重抓活動。
+- 資料面板新增匯入／匯出到雲端、帳號與分類筆數比較、衝突明細與本機／雲端選擇。匯入以原本的 local backup merge 合併並保存匯入前備份；匯出合併雲端獨有資料後保存，但不改本機 document、Base／Outbox／Journal。兩端皆保留取消標記。
+- 新增 src/cloud-backup.mjs，沿用既有嚴格 Drive transport 與個人 JSON 格式，appDataFolder 固定檔名不變。每次操作確認 permissionId，email 僅供當次預覽；不綁定或自動搬移本機清單，使用者按比較／確認才進行手動轉移。授權切換／過期會使舊預覽失效。
+- GoogleLogin 新增受端點、方法、世代與大小限制保護的 request facade，Token 仍由原共用模組私有保存。CSP 只增加固定 www.googleapis.com/drive/ 及 upload/drive/，未改 Client ID／scope，未修改 EDF／PS Game Base。
+- IDB 沿用 version 1，獨立 cloud-export 記錄在送出前持久化候選內容、期望版本與帳號。已知拒絕／尚未送出可重新比較；未知寫入結果、確認後本機提交失敗皆留存，重載不重送。恢復僅限原帳號讀取並核對同份內容；不符就停寫，提供待確認 JSON 下載，不刪除存檔或 Journal。
+- 現有 Node 框架增加雲端與 OAuth request facade 回歸，完整 **236 項通過**。覆蓋首次建立／條件更新、兩種衝突選擇、Tombstone、本機與雲端預覽失效、重複檔、缺 ETag、雲端刪除、異專案拒絕、錯帳號、取消、過期、回應遺失、恢復不重送與本機後續修改保留；無新增套件或測試框架。
+- 本機原生瀏覽器兩個獨立 testRun＋實際 IDB＋模擬 Drive，驗證 A 匯出、B 匯入、備份、衝突／取消及採用雲端；模擬已寫入但回應 500，重載保留確認紀錄，重新連接後只讀確認成功。390／320px 截圖確認面板、比較表與按鈕可用；保留既有 PS Game Base 視覺，參照 design-taste-frontend 的 settings／data-terminal 密度，未重設商品頁樣式。
+- 個人雲端備份不包含活動快照、價格及基本資料快取；舊活動商品在新裝置若無來源資料，仍沿用 ID fallback，可管理標記。這是既有格式的限制，未悄悄升版。
+- 真實帳號 Drive 讀寫與 v2 If-Match／CORS 尚待使用者正式站首輪匯出匯入確認；不能用既有授權成功或模擬結果替代。未代操作真實帳號或改 Cloud Console。合成服務與證據僅在 POC .local／artifacts/cloud-backup，無測試憑證或模擬模組加入發布白名單。
+
+## 2026-10-26 主頁預設隱藏忽略與復原上一步
 
 - 活動頁在分類全不勾時預設隱藏 ignored，勾選忽略仍可顯示，與其他 checkbox 同組採聯集；自訂忽略清單保持可用，四項統計仍按完整範圍計算。完整長列表、搜尋／平台／排序及正式活動快照不變，不重抓活動。
 - 畫面底部固定顯示最近操作的商品名稱及復原按鈕，追蹤／忽略／取消均可還原。只保留本頁最近一筆，切換清單／篩選仍可用；重載、離頁或成功匯入後清除，復原成功訊息短暫顯示。

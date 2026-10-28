@@ -6,7 +6,7 @@ import { GoogleLogin } from '../src/google-login.mjs';
 
 const sharedSource = await readFile(new URL('../web/shared/google-auth.js', import.meta.url), 'utf8');
 const configSource = await readFile(new URL('../web/cloud-config.js', import.meta.url), 'utf8');
-function harness({ loaded = true } = {}) {
+function harness({ loaded = true, request } = {}) {
   let clock = 1_000_000, timerId = 0, externalRequests = 0, storageAccesses = 0;
   const timers = new Map(), clients = [], requests = [], scripts = [], changes = [];
   const google = { accounts: { oauth2: {
@@ -25,7 +25,7 @@ function harness({ loaded = true } = {}) {
     fetch() { externalRequests++; throw Error('Unexpected external request'); },
     document: { createElement() { return { remove() {} }; }, head: { append(script) { scripts.push(script); } } } });
   const login = new GoogleLogin({ Auth: window.SideProjectAuth.GoogleAuth,
-    clientId: window.SIDE_PROJECT_CLOUD_CONFIG.clientId, onChange: state => changes.push(state) });
+    clientId: window.SIDE_PROJECT_CLOUD_CONFIG.clientId, request, onChange: state => changes.push(state) });
   function reply(response = {}) {
     clients.at(-1).options.callback({ access_token: 'synthetic-test-token', expires_in: 3600,
       scope: window.SideProjectAuth.scope, ...response });
@@ -104,4 +104,49 @@ test('repeated clicks cannot create concurrent popup requests', async () => {
 test('missing configuration fails without loading Google or exposing exception text', async () => {
   const login = new GoogleLogin(); assert.equal(await login.prepare(), false);
   assert.equal(login.state.error, 'config'); assert.equal(login.state.connected, false);
+});
+
+const aboutEndpoint = 'https://www.googleapis.com/drive/v3/about?fields=user(permissionId,emailAddress)';
+async function connectedHarness(request) {
+  const h = harness({ request }); await h.login.prepare(); const pending = h.login.connect(); h.reply(); await pending; return h;
+}
+test('Drive requests require explicit connected authorization', async () => {
+  let calls = 0; const h = harness({ request: () => { calls++; } });
+  await assert.rejects(h.login.request(aboutEndpoint), error => error.code === 'AUTH_REQUIRED'); assert.equal(calls, 0);
+});
+test('Drive facade supplies only in-memory credentials and strict network options', async () => {
+  let captured;
+  const h = await connectedHarness(async (url, options) => { captured = { url, options }; return new Response('{}'); });
+  const response = await h.login.request(aboutEndpoint); assert.equal(response.status, 200);
+  assert.equal(captured.options.headers.Authorization, 'Bearer synthetic-test-token');
+  assert.equal(captured.options.credentials, 'omit'); assert.equal(captured.options.redirect, 'error');
+  assert.equal(captured.options.referrerPolicy, 'no-referrer'); assert.equal(captured.options.cache, 'no-store');
+  assert.ok(!JSON.stringify(h.login.state).includes('synthetic-test-token')); h.login.disconnect();
+});
+for (const [name, url, options, code] of [
+  ['other host', 'https://example.test/drive/v3/about', {}, 'INVALID_DRIVE_ENDPOINT'],
+  ['plain HTTP', 'http://www.googleapis.com/drive/v3/about', {}, 'INVALID_DRIVE_ENDPOINT'],
+  ['delete', 'https://www.googleapis.com/drive/v3/files/id', { method: 'DELETE' }, 'INVALID_DRIVE_ENDPOINT'],
+  ['outside appDataFolder', 'https://www.googleapis.com/drive/v3/files', {}, 'INVALID_DRIVE_ENDPOINT'],
+  ['unconditional write', 'https://www.googleapis.com/upload/drive/v2/files/id?uploadType=media', { method: 'PUT' }, 'INVALID_ETAG'],
+  ['weak ETag', 'https://www.googleapis.com/upload/drive/v2/files/id?uploadType=media', { method: 'PUT', headers: { 'If-Match': 'W/"version"' } }, 'INVALID_ETAG'],
+  ['credential override', aboutEndpoint, { headers: { Authorization: 'synthetic-override' } }, 'INVALID_DRIVE_ENDPOINT'],
+]) test('Drive facade rejects ' + name + ' before dispatch', async () => {
+  let calls = 0; const h = await connectedHarness(async () => { calls++; return new Response('{}'); });
+  await assert.rejects(h.login.request(url, options), error => error.code === code);
+  assert.equal(calls, 0); h.login.disconnect();
+});
+test('disconnect aborts a request and rejects its late response', async () => {
+  let resolve, signal; const h = await connectedHarness((url, options) => { signal = options.signal; return new Promise(done => { resolve = done; }); });
+  const pending = h.login.request(aboutEndpoint); h.login.disconnect(); assert.equal(signal.aborted, true);
+  resolve(new Response('{}')); await assert.rejects(pending, error => error.code === 'SESSION_CHANGED');
+});
+test('expired authorization cannot dispatch a Drive request', async () => {
+  let calls = 0; const h = await connectedHarness(async () => { calls++; return new Response('{}'); }); h.advance(3_600_001);
+  await assert.rejects(h.login.request(aboutEndpoint), error => error.code === 'AUTH_REQUIRED'); assert.equal(calls, 0); h.login.disconnect();
+});
+test('Drive authorization rejection disconnects without exposing the response body', async () => {
+  const h = await connectedHarness(async () => new Response('synthetic private error detail', { status: 401 }));
+  await assert.rejects(h.login.request(aboutEndpoint), error => error.code === 'HTTP_401' && !error.message.includes('private'));
+  assert.equal(h.login.state.connected, false);
 });

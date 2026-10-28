@@ -1,6 +1,7 @@
 import { selectProducts, classificationCounts, validateCatalog, catalogForDisplay, buildCatalog } from './src/catalog.mjs';
 import { campaignState } from './src/campaigns.mjs';
 import { GoogleLogin } from './src/google-login.mjs';
+import { CloudBackup } from './src/cloud-backup.mjs';
 import { personalProducts, productInfo, rememberProductInfo } from './src/personal-list.mjs';
 import { openPersonalStore } from './src/poc04/indexeddb-store.mjs';
 import { exportBackup, importBackup, limits } from './src/poc04/personal-data.mjs';
@@ -16,6 +17,8 @@ let listMode = ['#my-list', '#tracked', '#ignored'].includes(location.hash) ? 'p
 let personalKind = location.hash === '#ignored' ? 'ignored' : 'tracked';
 let catalogUnavailable = false, metadataUnavailable = false;
 let undoEntry = null, undoFeedback = '', undoTimer, markBusy = false;
+let cloudBackup, cloudBusy = false, cloudPending = false;
+let cloudMessage = '連接 Google 後，可手動匯入或匯出個人標記。';
 const format = number => number.toLocaleString('zh-TW');
 const googleLogin = new GoogleLogin({ Auth: globalThis.SideProjectAuth?.GoogleAuth,
   clientId: globalThis.SIDE_PROJECT_CLOUD_CONFIG?.clientId, onChange: renderGoogle });
@@ -27,7 +30,7 @@ function renderGoogle(state = googleLogin.state) {
     cancelled: '已取消連接。', expired: 'Google 授權已到期，請重新登入。', auth: 'Google 授權未完成或逾時，請重新啟用登入。' };
   const messages = { idle: '尚未連接 Google。先啟用登入服務，再按登入選擇帳號。', preparing: '正在載入 Google 登入服務…',
     ready: 'Google 服務已就緒，請按「Google 登入」選擇帳號。', authorizing: '請在 Google 視窗完成登入與授權。',
-    connected: 'Google 授權成功。目前尚未讀取或上傳雲端資料。', expired: 'Google 授權已到期，請重新啟用登入。', error: errors[state.error] ?? errors.auth };
+    connected: 'Google 已連接。', expired: 'Google 授權已到期，請重新啟用登入。', error: errors[state.error] ?? errors.auth };
   $('#data-open').classList.toggle('connected', connected);
   $('#google-status').textContent = messages[state.phase];
   if (connected && state.expiresAt) $('#google-status').textContent += ` 授權有效至 ${new Date(state.expiresAt).toLocaleTimeString('zh-TW')}。`;
@@ -35,15 +38,105 @@ function renderGoogle(state = googleLogin.state) {
   $('#google-connect').textContent = connected ? '已連接' : busy ? '處理中…' : state.ready ? 'Google 登入' : '啟用 Google 登入';
   $('#google-disconnect').hidden = !busy && !connected && !state.ready;
   $('#google-disconnect').textContent = busy ? '取消連接' : '中斷連接';
+  if (!connected) cloudBackup?.cancel();
+  if (connected && cloudMessage === '連接 Google 後，可手動匯入或匯出個人標記。') cloudMessage = '可從雲端匯入，或將本機標記匯出到雲端。';
+  renderCloud();
 }
-$('#data-open').addEventListener('click', () => { renderGoogle(); $('#data-feedback').textContent = ''; $('#data-dialog').showModal(); });
+$('#data-open').addEventListener('click', () => {
+  renderGoogle(); $('#data-feedback').textContent = ''; $('#data-dialog').showModal();
+  if (store) void refreshCloudRecord().then(renderCloud);
+});
 $('#google-connect').addEventListener('click', () => {
   if (googleLogin.state.ready) void googleLogin.connect(); else void googleLogin.prepare();
 });
 $('#google-disconnect').addEventListener('click', () => googleLogin.disconnect());
 $('#data-close').addEventListener('click', () => $('#data-dialog').close());
 $('#data-dialog').addEventListener('close', () => {
+  if (cloudBusy && !$('#cloud-dialog').open) cloudBackup?.cancel();
   if (['preparing', 'authorizing'].includes(googleLogin.state.phase)) googleLogin.disconnect();
+});
+function renderCloud() {
+  const connected = googleLogin.state.connected;
+  $('#cloud-status').textContent = cloudMessage + (cloudPending ? ' 上次匯出尚待確認，請先按「確認上次匯出」。' : '');
+  for (const id of ['cloud-import', 'cloud-export']) $('#'+id).disabled = !cloudBackup || !connected || cloudBusy || cloudPending;
+  $('#cloud-recover').hidden = !cloudPending; $('#cloud-pending-export').hidden = !cloudPending;
+  $('#cloud-recover').disabled = !connected || cloudBusy;
+  $('#cloud-pending-export').disabled = cloudBusy;
+  $('#cloud-confirm').disabled = cloudBusy || !connected;
+  $('#cloud-cancel').disabled = cloudBusy;
+  $('#google-disconnect').disabled = cloudBusy;
+}
+async function refreshCloudRecord() {
+  try {
+    const wasPending = cloudPending; cloudPending = !!(await store.readCloudExport());
+    if (wasPending && !cloudPending && !cloudBusy) cloudMessage = '雲端確認狀態已更新，可重新比較。';
+  }
+  catch { cloudPending = true; cloudMessage = '雲端確認紀錄無法讀取，請先匯出本機個人備份。'; }
+}
+const cloudErrors = {
+  AUTH_REQUIRED: '請重新連接 Google，再重新比較。', SESSION_CHANGED: '連接或操作已變更，請重新比較。',
+  HTTP_401: 'Google 授權已到期，請重新連接。', HTTP_403: 'Google Drive 拒絕讀寫，請檢查 Drive API 與帳號權限。',
+  HTTP_412: '其他裝置已更新雲端存檔，請重新比較。', REMOTE_CHANGED: '雲端存檔已變更，請重新比較。',
+  STALE_SNAPSHOT: '本機標記已變更，請重新比較。', DUPLICATE_FILES: '找到重複的雲端存檔，已停止讀寫；請先保留本機備份。',
+  INVALID_ETAG: '雲端版本資訊不完整，已停止上傳。', UNCONFIRMED_EXPORT: '上次匯出結果尚待確認，請先確認上次匯出。',
+  CLOUD_ACCOUNT_CHANGED: '請使用上次匯出的 Google 帳號確認結果。', RECOVERY_REQUIRED: '雲端內容與待確認備份不同，已停止上傳；請先匯出本機與待確認備份。',
+  NETWORK_ERROR: '無法連接 Google Drive，請確認網路後重試。', TIMEOUT: 'Google Drive 連接逾時，請先確認上次匯出結果。',
+};
+async function runCloud(work) {
+  if (!cloudBackup || cloudBusy) return;
+  cloudBusy = true; cloudMessage = '處理中…'; renderCloud();
+  try { await work(); }
+  catch (error) {
+    cloudMessage = cloudErrors[error.code] ?? '雲端操作未完成，本機標記仍保留；請先匯出備份後重試。';
+    if ($('#cloud-dialog').open) $('#cloud-dialog').close();
+  }
+  finally { await refreshCloudRecord(); cloudBusy = false; renderCloud(); channel?.postMessage('cloud-changed'); }
+}
+function cloudPreview(result) {
+  const names = new Map(savedCatalog.products.map(product => [product.key, product.name]));
+  $('#cloud-title').textContent = result.mode === 'import' ? '從雲端匯入' : '匯出到雲端';
+  $('#cloud-account').textContent = `Google 帳號：${result.account}`;
+  $('#cloud-summary').textContent = result.mode === 'import' ? '比較後合併到本機，保留兩邊獨有標記。' : result.creating ? '尚無雲端存檔，確認後建立第一份備份。' : '比較後合併儲存到雲端，保留雲端獨有標記。';
+  for (const side of ['local', 'remote']) for (const type of ['tracked', 'ignored', 'cleared']) $('#cloud-'+side+'-'+type).textContent = format(result[side][type]);
+  $('#cloud-conflict-options').hidden = !result.conflicts.length;
+  $('#cloud-choice').value = 'local';
+  $('#cloud-conflict-count').textContent = `${format(result.conflicts.length)} 筆衝突`;
+  $('#cloud-conflicts').replaceChildren(...result.conflicts.map(conflict => {
+    const item = document.createElement('li'), labels = { tracked: '追蹤', ignored: '忽略', unclassified: '取消標記' };
+    const name = names.get(conflict.key) ?? productInfos[conflict.key]?.name ?? conflict.key.split(':')[1];
+    item.textContent = `${name}：本機${labels[conflict.local]} ／ 雲端${labels[conflict.remote]}`; return item;
+  }));
+  $('#cloud-confirm').textContent = result.mode === 'import' ? '確認合併匯入' : '確認匯出到雲端';
+  $('#data-dialog').close(); $('#cloud-dialog').showModal();
+}
+for (const mode of ['import', 'export']) $('#cloud-'+mode).addEventListener('click', () => runCloud(async () => {
+  const result = await cloudBackup.preview(mode);
+  if (result.empty) { cloudMessage = '此 Google 帳號尚無雲端存檔，可先匯出到雲端。'; return; }
+  cloudMessage = '請確認比較結果。'; cloudPreview(result);
+}));
+$('#cloud-confirm').addEventListener('click', () => runCloud(async () => {
+  const result = await cloudBackup.confirm($('#cloud-choice').value);
+  if (result.mode === 'import') {
+    local = result.local; await rememberVisibleProducts(); undoEntry = null; undoFeedback = ''; clearTimeout(undoTimer);
+    try { $('#recovery').hidden = !(await store.readImportBackup()); } catch { /* retain prior availability */ }
+    channel?.postMessage('changed'); render();
+  }
+  cloudMessage = result.mode === 'import' ? '雲端標記已合併匯入。' : '已匯出到雲端。';
+  $('#cloud-dialog').close();
+}));
+$('#cloud-cancel').addEventListener('click', () => $('#cloud-dialog').close());
+$('#cloud-dialog').addEventListener('cancel', event => { if (cloudBusy) event.preventDefault(); });
+$('#cloud-dialog').addEventListener('close', () => {
+  cloudBackup?.cancel();
+  if (cloudMessage === '請確認比較結果。') cloudMessage = '已取消，存檔未更動。';
+  if (!$('#data-dialog').open) $('#data-dialog').showModal(); renderCloud();
+});
+$('#cloud-recover').addEventListener('click', () => runCloud(async () => {
+  await cloudBackup.recover(); cloudMessage = '已確認上次匯出成功，可繼續使用雲端存檔。';
+}));
+$('#cloud-pending-export').addEventListener('click', async () => {
+  try { const journal = await store.readCloudExport(); if (journal) downloadBackup(journal.candidate, 'ps-store-pending-cloud'); }
+  catch { cloudMessage = '待確認備份無法讀取，請保留目前瀏覽器資料。'; renderCloud(); }
 });
 window.addEventListener('pageshow', () => renderGoogle());
 function notice(text, error = false) {
@@ -225,7 +318,7 @@ for (const [id, kind] of [['personal-view', 'tracked'], ['ignored-view', 'ignore
   listMode = 'personal'; personalKind = kind;
   view.campaign = '';
   history.replaceState(null, '', location.pathname + location.search + (kind === 'tracked' ? '#tracked' : '#ignored'));
-  refreshDisplay();
+  refreshDisplay(); renderCloud();
 });
 function downloadBackup(backup, prefix = 'ps-store-personal') {
   const blob = new Blob([exportBackup(backup)], { type: 'application/json' });
@@ -280,17 +373,20 @@ async function start() {
   }
   try {
     store = await openPersonalStore({ name: databaseName }); local = await store.read();
+    cloudBackup = new CloudBackup({ store, login: googleLogin }); await refreshCloudRecord();
+    if (cloudPending) cloudMessage = '上次雲端匯出結果尚待確認，請連接原 Google 帳號後確認結果。';
     await rememberVisibleProducts();
     $('#export').disabled = false;
     $('#import').disabled = false; $('#recovery').hidden = !(await store.readImportBackup());
     channel = new BroadcastChannel(databaseName);
-    channel.onmessage = async () => { try {
+    channel.onmessage = async event => { try {
+      if (event.data === 'cloud-changed') { await refreshCloudRecord(); renderCloud(); return; }
       local = await store.read(); await rememberVisibleProducts(); render();
     } catch { notice('讀取跨分頁標記失敗。', true); } };
   } catch { notice('商品可瀏覽，但此瀏覽器無法儲存標記。', true); }
   $('#updated').textContent = savedCatalog.fetchedAt ? `資料擷取：${new Date(savedCatalog.fetchedAt).toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' })}（台灣時間）` : '尚未新增活動。';
-  refreshDisplay();
+  refreshDisplay(); renderCloud();
   setInterval(() => { if (lifecycle() !== lifecycleSignature) refreshDisplay(); }, 30_000);
 }
-window.addEventListener('pagehide', () => { clearTimeout(undoTimer); googleLogin.disconnect(); channel?.close(); store?.close(); });
+window.addEventListener('pagehide', () => { clearTimeout(undoTimer); cloudBackup?.cancel(); googleLogin.disconnect(); channel?.close(); store?.close(); });
 await start();

@@ -1,10 +1,13 @@
-// Wrap the unchanged shared GoogleAuth. This integration does not call Drive,
-// expose tokens, bind an account to local marks or persist authorization.
+import { strongETag, fileName } from './poc04/drive-transport.mjs';
+
+// Shared GoogleAuth keeps tokens private. Only this guarded request facade uses them.
 export class GoogleLogin {
   #auth; #generation = 0; #phase = 'idle'; #ready = false; #error = '';
-  constructor({ Auth, clientId, onChange = () => {} } = {}) {
-    this.Auth = Auth; this.clientId = clientId; this.onChange = onChange;
+  #controllers = new Set();
+  constructor({ Auth, clientId, request = globalThis.fetch, onChange = () => {} } = {}) {
+    this.Auth = Auth; this.clientId = clientId; this.fetch = request; this.onChange = onChange;
   }
+  get sessionId() { return this.#generation; }
   get state() {
     const connected = this.#auth?.connected === true;
     return { phase: this.#phase === 'connected' && !connected ? 'expired' : this.#phase,
@@ -14,6 +17,8 @@ export class GoogleLogin {
   #emit() { this.onChange(this.state); }
   #discard() {
     ++this.#generation;
+    for (const controller of this.#controllers) controller.abort();
+    this.#controllers.clear();
     const previous = this.#auth; this.#auth = undefined; this.#ready = false;
     previous?.disconnect();
   }
@@ -55,6 +60,53 @@ export class GoogleLogin {
         this.#phase = 'connected'; this.#emit(); return true;
       }, error => generation === this.#generation ? this.#failed(error) : false);
     } catch (error) { return Promise.resolve(generation === this.#generation ? this.#failed(error) : false); }
+  }
+  async request(url, options = {}, session = this.sessionId) {
+    const fail = code => { const error = new Error(code); error.code = code; throw error; };
+    const guard = () => {
+      if (session !== this.sessionId) fail('SESSION_CHANGED');
+      if (!this.state.connected) fail('AUTH_REQUIRED');
+    };
+    guard();
+    const parsed = new URL(url), method = options.method ?? 'GET';
+    const path = parsed.pathname, id = '[A-Za-z0-9_-]{1,200}';
+    const allowed = method === 'GET' && (path === '/drive/v3/about' || path === '/drive/v3/files'
+      || new RegExp(`^/drive/v[23]/files/${id}$`).test(path))
+      || method === 'POST' && path === '/upload/drive/v3/files' && parsed.searchParams.get('uploadType') === 'multipart'
+      || method === 'PUT' && new RegExp(`^/upload/drive/v2/files/${id}$`).test(path) && parsed.searchParams.get('uploadType') === 'media';
+    if (parsed.origin !== 'https://www.googleapis.com' || parsed.username || parsed.password || parsed.hash || !allowed
+      || Object.keys(options.headers ?? {}).some(key => key.toLowerCase() === 'authorization')) fail('INVALID_DRIVE_ENDPOINT');
+    if (method === 'PUT' && !strongETag(options.headers?.['If-Match'])) fail('INVALID_ETAG');
+    if (path === '/drive/v3/files' && (parsed.searchParams.get('spaces') !== 'appDataFolder'
+      || parsed.searchParams.get('q') !== `name = '${fileName}' and trashed = false`)) fail('INVALID_DRIVE_ENDPOINT');
+    const controller = new AbortController(), cancel = () => controller.abort();
+    this.#controllers.add(controller); options.signal?.addEventListener('abort', cancel, { once: true });
+    if (options.signal?.aborted) cancel();
+    let timer;
+    try {
+      return await Promise.race([
+        (async () => {
+          const response = await this.fetch(url, { method, body: options.body, signal: controller.signal,
+            headers: { ...options.headers, Authorization: `Bearer ${this.#auth.token()}` },
+            credentials: 'omit', redirect: 'error', cache: 'no-store', referrerPolicy: 'no-referrer' });
+          const text = await response.text(); guard();
+          if (response.status === 401) { this.disconnect(); fail('HTTP_401'); }
+          if (new TextEncoder().encode(text).byteLength > 16 * 1024 * 1024) fail('REMOTE_TOO_LARGE');
+          return new Response([204, 205, 304].includes(response.status) ? null : text, { status: response.status });
+        })(),
+        new Promise((_, reject) => { timer = setTimeout(() => {
+          controller.abort(); const error = new Error('TIMEOUT'); error.code = 'TIMEOUT'; reject(error);
+        }, 20_000); }),
+      ]);
+    } catch (error) {
+      if (error.code === 'HTTP_401') throw error;
+      guard();
+      if (error.code) throw error;
+      fail('NETWORK_ERROR');
+    } finally {
+      clearTimeout(timer); this.#controllers.delete(controller);
+      options.signal?.removeEventListener('abort', cancel);
+    }
   }
   disconnect() { this.#discard(); this.#phase = 'idle'; this.#error = ''; this.#emit(); }
 }

@@ -39,6 +39,8 @@ export function createMockableDrive({ request, timeoutMs = 20_000 } = {}) {
       ]);
     } catch (error) {
       if (error instanceof DriveError) throw error;
+      if (['SESSION_CHANGED', 'AUTH_REQUIRED', 'HTTP_401', 'TIMEOUT', 'REMOTE_TOO_LARGE', 'INVALID_DRIVE_ENDPOINT'].includes(error?.code))
+        throw new DriveError(error.code);
       throw new DriveError('NETWORK_ERROR');
     } finally { clearTimeout(timer); }
   }

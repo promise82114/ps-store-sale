@@ -1,5 +1,6 @@
 import * as state from './sync-state.mjs';
 import { productInfo, rememberProductInfo } from '../personal-list.mjs';
+import { validateCloudExport } from '../cloud-backup.mjs';
 
 export class StorageError extends Error {
   constructor(code) { super(code); this.code = code; }
@@ -95,7 +96,38 @@ export async function openPersonalStore({ factory = globalThis.indexedDB,
     if (info.key !== undo?.key) throw new StorageError('INVALID_UNDO_PRODUCT');
     return transaction(value => state.undoClassification(value, undo, metadata), false, info);
   };
-  adapter.importBackup = (...args) => transaction(value => state.mergeLocalBackup(value, ...args), true);
+  adapter.importBackup = (document, revision, choice, guard) => transaction(value => {
+    guard?.(); return state.mergeLocalBackup(value, document, revision, choice);
+  }, true);
+  function cloudTransaction(action, guard) {
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('state', action ? 'readwrite' : 'readonly'), records = tx.objectStore('state');
+      let journal, personal, result, failure, loaded = 0;
+      const finish = () => {
+        if (++loaded !== 2) return;
+        try {
+          guard?.();
+          const current = journal ? validateCloudExport(journal) : null;
+          result = action ? action(current, state.validateState(personal ?? state.emptyState()), records) : current;
+        } catch (error) { failure = error; tx.abort(); }
+      };
+      const a = records.get('cloud-export'), b = records.get('personal');
+      a.onsuccess = () => { journal = a.result; finish(); }; b.onsuccess = () => { personal = b.result; finish(); };
+      tx.oncomplete = () => resolve(structuredClone(result));
+      tx.onabort = () => reject(failure ?? new StorageError('STORAGE_TRANSACTION_FAILED')); tx.onerror = () => {};
+    });
+  }
+  adapter.readCloudExport = guard => cloudTransaction(null, guard);
+  adapter.beginCloudExport = (journal, revision, guard) => cloudTransaction((current, personal, records) => {
+    if (current) throw new StorageError('UNCONFIRMED_EXPORT');
+    if (personal.localRevision !== revision) throw new StorageError('STALE_SNAPSHOT');
+    if (personal.attempt) throw new StorageError('SYNC_IN_PROGRESS');
+    const saved = validateCloudExport(journal); records.put(saved, 'cloud-export'); return saved;
+  }, guard);
+  adapter.clearCloudExport = (id, guard) => cloudTransaction((current, personal, records) => {
+    if (current && current.id !== id) throw new StorageError('STALE_CLOUD_EXPORT');
+    records.delete('cloud-export'); return null;
+  }, guard);
   adapter.readImportBackup = () => new Promise((resolve, reject) => {
     const tx = db.transaction('state', 'readonly'); let backup = null;
     const request = tx.objectStore('state').get('before-import');

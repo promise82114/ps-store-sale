@@ -6,7 +6,7 @@
   "description": "台灣 PlayStation Store 多活動優惠整理與本機個人標記",
   "engines": { "node": ">=20.18" },
   "scripts": {
-    "test": "node --test tests/diagnostic.test.mjs tests/pagination.test.mjs tests/poc04-personal-data.test.mjs tests/poc04-merge.test.mjs tests/poc04-sync-state.test.mjs tests/site.test.mjs tests/campaign-management.test.mjs tests/google-login.test.mjs tests/personal-list.test.mjs",
+    "test": "node --test tests/diagnostic.test.mjs tests/pagination.test.mjs tests/poc04-personal-data.test.mjs tests/poc04-merge.test.mjs tests/poc04-sync-state.test.mjs tests/site.test.mjs tests/campaign-management.test.mjs tests/google-login.test.mjs tests/personal-list.test.mjs tests/cloud-backup.test.mjs",
     "campaign:manage": "node src/manage-campaign.mjs",
     "build:catalog": "node src/build-catalog.mjs",
     "build": "node tools/build-site.mjs",

@@ -1,6 +1,6 @@
 # PS 優惠探索
 
-整理台灣 PlayStation Store 優惠活動，支援任意數量活動、搜尋、平台篩選、排序、完整長列表及本機追蹤／忽略清單。這是個人工具，非 PlayStation 官方網站。已接入 EDF 的共用 Google 登入模組，先供正式站授權測試；雲端同步尚未啟用，個人標記只存在瀏覽器，不進 Git。
+整理台灣 PlayStation Store 優惠活動，支援任意數量活動、搜尋、平台篩選、排序、完整長列表及本機追蹤／忽略清單。這是個人工具，非 PlayStation 官方網站。沿用 EDF 的共用 Google 登入，支援手動 Google Drive 雲端存檔；個人標記不進 Git，不會背景自動上傳。
 
 ## 瀏覽與篩選
 
@@ -10,7 +10,7 @@
 
 上方四項統計為目前活動或自訂清單的總數、未分類、追蹤、忽略，不受搜尋、平台或分類 checkbox 影響。分類 checkbox 可以複選，顯示勾選類別的聯集；活動頁全部不勾時，預設顯示未分類與追蹤商品，隱藏已忽略商品，勾選「忽略」即可查看。自訂清單全部不勾仍顯示該清單全部商品。切換活動保留篩選，切換追蹤／忽略清單會清除分類勾選，保留搜尋、平台與排序。
 
-右上角「資料與同步」集中匯入個人備份、匯出個人標記、匯出匯入前備份與 Google 連接。匯入仍須先預覽再確認，所有原有合併與復原保護不變。
+右上角「資料與同步」集中匯入個人備份、匯出個人標記、匯出匯入前備份、Google 連接與手動雲端存檔。匯入仍須先預覽再確認，所有原有合併與復原保護不變。
 
 ## 復原上一步
 
@@ -80,21 +80,42 @@
 
 活動清單由使用者透過 Actions 新增／更新。早期三份缺正式名稱與期間的暫填資料曾清空，原資料仍可從 99ff16b 還原；目前已由使用者重新登錄正式活動，新增不會重抓其他活動。
 
-## Google 登入測試
+## Google 登入與雲端存檔
 
 正式上線後，以一般 Chrome／Edge 開啟本站，按右上角「資料與同步」，在「Google 連接」區操作：
 
 1. 按「啟用 Google 登入」載入官方 GIS。
 2. 服務就緒後，再按「Google 登入」，在 Google 視窗選擇帳號並授權。
-3. 本站顯示「Google 授權成功」即表示本次 Token Flow 通過；可按「中斷連接」，或等授權到期。重新整理後須重新連接。
+3. 顯示「Google 已連接」後，即可使用雲端存檔。可按「中斷連接」，或等授權到期；重新整理後須重新連接。
 
-沿用 `edfwb2-checklist/dist/shared/google-auth.js` 原樣副本（EDF 兩個專案一致），以及 EDF／PS Game Base 的同一公開 Web Client ID，設定在 `web/cloud-config.js`。只請求既有 `drive.appdata` scope。這是授權測試入口，尚未進行帳號識別、讀取 Drive、上傳、同步或跨帳號資料搬移；登入不改動現有本機工作區。
+沿用 `edfwb2-checklist/dist/shared/google-auth.js` 原樣副本（EDF 兩個專案一致），以及 EDF／PS Game Base 的同一公開 Web Client ID，設定在 `web/cloud-config.js`。只請求既有 `drive.appdata` scope。登入本身不讀寫雲端，也不改本機工作區；按雲端操作後才讀取 Drive 帳號與此工具的備份檔。
 
 開頁及開面板不聯絡 Google，按啟用才載入 GIS；按登入才開彈窗，保留點擊手勢。Token 只留在共用模組私有記憶體，不放入 localStorage／IDB／JSON／日誌；中斷、到期或離頁即清除。本專案在取消後丟棄舊 Auth instance，遲到回呼不能恢復舊連接。中斷不撤銷整個共用 Client 的權限，不影響其他專案。
 
-按 [Google 的來源設定方式](https://developers.google.com/identity/oauth2/web/guides/get-google-api-clientid)，正式 origin 是 `https://promise82114.github.io`，不包含 `/ps-store-sale/`。與 EDF／PS Game Base 同 origin；若共用 Client 已核准此來源，通常可沿用。這次未讀取或修改 Cloud Console，實際授權仍待使用者上線測試；遇 origin／測試使用者限制時依 Google 畫面核對，無須提供 Token 或 Client Secret。
+按 [Google 的來源設定方式](https://developers.google.com/identity/oauth2/web/guides/get-google-api-clientid)，正式 origin 是 `https://promise82114.github.io`，不包含 `/ps-store-sale/`。與 EDF／PS Game Base 同 origin；若共用 Client 已核准此來源，通常可沿用。2026-10-28 使用者回報正式站授權正常；未讀取或修改 Cloud Console。遇 origin／測試使用者限制時依 Google 畫面核對，無須提供 Token 或 Client Secret。
 
 已依 [Google GIS 設定說明](https://developers.google.com/identity/gsi/web/guides/get-google-api-clientid) 在 HTML 與本機預覽開放固定 GIS script／frame／connect／style 路徑，使用 `strict-origin-when-cross-origin` Referrer Policy；未開放任意腳本來源。先前內建瀏覽器的彈窗失敗不作為正式站驗收結果。
+
+### 儲存與換裝置
+
+- 先在有整理紀錄的裝置按「匯出到雲端」，核對 Google 帳號、本機／雲端筆數與衝突，再確認儲存。
+- 換裝置後，連接同一 Google 帳號，按「從雲端匯入」，比較後確認合併。兩邊獨有標記會保留，衝突可選本機或雲端；匯入前保留本機復原備份。
+- 匯出會合併並保留雲端獨有標記，但不把雲端內容自動套到本機。匯出後若想接回其他裝置的紀錄，再按從雲端匯入。
+- 本機清單與 Google 帳號分開；預覽會顯示目前帳號，切換帳號或授權到期需重新比較。沒有背景同步或自動重送。
+
+只保存追蹤、忽略及取消標記，不上傳活動快照、價格或商品基本資料快取。使用 [Google appDataFolder](https://developers.google.com/workspace/drive/api/guides/appdata) 的固定檔名 ps-store-sale-filter.json，屬工具專用的隱藏存檔，不會列在一般「我的雲端硬碟」。JSON 個人資料格式不變，其他專案的檔案不讀寫。
+
+### 比較與中斷保護
+
+匯入前重新核對雲端版本，本機修改後舊預覽會失效；匯出沿用 v2 ETag／If-Match 條件更新，寫入後重新下載核對內容。沒有版本保護、同名多檔或存檔格式不符就停下，不無條件覆寫。
+
+上傳前會在原 IDB state store 的獨立 cloud-export 記錄保存候選備份與帳號 key，不更動個人 document、Base、Outbox 或原同步 Journal。確定未送出／已被拒絕的請求可重新比較；可能已送出的未知結果會保留確認紀錄，重新整理也不會自動重送。
+
+出現「確認上次匯出」時，連接原帳號後按該按鈕。它只讀取比對，確認相同候選內容後解除待確認狀態，不重複建立檔案。若內容不同，停止新上傳，保留紀錄，並可「另存待確認備份」及匯出本機個人標記；不要清除瀏覽器資料來排錯。
+
+API 僅使用既有 drive.appdata scope；帳號識別採 [Drive about.get](https://developers.google.com/workspace/drive/api/reference/rest/v3/about/get) 的 permissionId，email 僅在預覽顯示、不持久化。CSP 僅新增固定 Google Drive／upload 路徑。Token 不進 IDB、JSON、Git 或日誌。
+
+開發驗證使用模擬 Drive 與兩個獨立瀏覽器工作區，並非真實 Google 寫入驗收。正式站首次實際匯出／匯入仍需使用者確認結果；授權成功與 Drive 讀寫成功分開判斷。
 
 ## 本機開發
 
@@ -113,4 +134,4 @@ npm run preview
 
 個人資料採 locale:ProductID，清除標記保留 Tombstone。正式 IDB 為 ps-store-sale-filter-v1。備份匯入會預覽、保留兩端獨有資料、要求選擇衝突，並在同一筆交易保存匯入前復原備份；不覆蓋其他 origin 的個人資料。
 
-正式網址為 [PS 優惠探索](https://promise82114.github.io/ps-store-sale/)。已獲使用者授權提交並推送正式版；部署結果以 [Pages Actions](https://github.com/promise82114/ps-store-sale/actions/workflows/publish.yml) 為準。Google 真實帳號授權由使用者上線後測試，詳見 [交接紀錄](docs/HANDOFF.md)。
+正式網址為 [PS 優惠探索](https://promise82114.github.io/ps-store-sale/)。已獲使用者授權提交並推送正式版；部署結果以 [Pages Actions](https://github.com/promise82114/ps-store-sale/actions/workflows/publish.yml) 為準。Google 真實雲端讀寫由使用者上線後確認，詳見 [交接紀錄](docs/HANDOFF.md)。
