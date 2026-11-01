@@ -7,9 +7,18 @@
 - 本次工作目錄完整 Node 240 項通過，包含同時出現的其他匯入／合併修改；另以 HEAD 加上本次三個檔案的乾淨副本驗證 **237 項通過**、建置版本 ac0958506ebe8b60，確認此次發布不依賴其他修改。本次只提交 google-login.mjs、其測試及本段交接。沙箱預設 TEMP 的 rename 受限，測試改以 repo .local/test-temp 作為程序 TEMP／TMP 後通過，未改測試或安全設定。
 - 使用者提供的 Console 訊息只有 Built-In AI、GIS inline style CSP 與 COOP window.closed，沒有 Drive 請求錯誤。瀏覽器工具無法連上 Windows 本機預覽；本次未完成原生瀏覽器或真實 Google 讀寫驗收，不能宣稱已證實使用者帳號的唯一失敗原因。使用者已明確授權本次 commit & push；推送會觸發 Pages，部署結果另行核對，正式站發布後仍須驗證真實匯出／匯入。
 
-日期：2026-10-28（Asia/Taipei），目標 G:\git\ps-store-sale，Repo promise82114/ps-store-sale，main 基準 HEAD 6266081。POC 歷史及既有使用者資料保留。
+日期：2026-11-02（Asia/Taipei），目標 G:\git\ps-store-sale，Repo promise82114/ps-store-sale。POC 歷史及既有使用者資料保留；下方舊日期段落為歷史紀錄。
 
-## 2026-10-28 Google Drive 手動雲端存檔（最新）
+## 2026-11-02 匯入只列出不同標記的衝突（最新）
+
+- 檔案與雲端匯入統一以追蹤／忽略為有效標記：相同標記不列出；一邊未曾標記或有取消紀錄，另一邊有標記時直接採用有標記的一邊；只有追蹤／忽略不同才顯示衝突。仍須確認匯入才寫入；兩邊都無標記時保留取消紀錄。
+- 檔案預覽增加衝突條列，與雲端共用呈現邏輯。只列商品名稱及雙方標記，有衝突時預設展開，零衝突時隱藏清單及選擇區。沿用現有面板樣式，沒有重設商品頁。
+- 匯入政策限於無 Base 的手動備份合併，雲端匯出及三方同步保留原本取消衝突規則。個人 JSON／IDB schema、操作 ID 驗證、版本檢查、匯入前備份及 Outbox 保護不變。
+- 完整 Node **240/240** 通過（含工作期間另行出現的 Google fetch receiver 回歸），語法、建置與 diff 空白檢查通過。本次新增 16 組分類配對，以及雲端相同標記、取消後採用匯入標記與匯出保護回歸；未連接 Google 或抓取活動。
+- 獨立暫存 Chromium＋合成 testRun 工作區驗證檔案匯入：只列 1 筆不同標記、相同及無標記配對不列出、零衝突隱藏控制、實際 IDB 套用、取消紀錄的匯入前備份與 reload 保存均通過。1440／768／390px 截圖確認無水平溢出，證據在忽略目錄 artifacts/import-comparison/。真實 Google 匯入未操作。
+- design-taste-frontend 的 lint 發現原有商品頁漸層與 ☆／✕ 字元；本次僅調整匯入元件，保留既有樣式。使用者已授權本次 commit & push，推送會觸發 Pages，部署結果另行核對。
+
+## 2026-10-28 Google Drive 手動雲端存檔
 
 - 使用者回報正式 Google 授權正常，要求實作雲端存檔匯入／匯出。本次沿用現有本機優先工作區及已授權的 commit／push／Pages 流程；僅手動操作，不開背景同步或排程，不重抓活動。
 - 資料面板新增匯入／匯出到雲端、帳號與分類筆數比較、衝突明細與本機／雲端選擇。匯入以原本的 local backup merge 合併並保存匯入前備份；匯出合併雲端獨有資料後保存，但不改本機 document、Base／Outbox／Journal。兩端皆保留取消標記。

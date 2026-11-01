@@ -102,13 +102,13 @@ export function undoClassification(input, undo, metadata) {
     && actual.updatedAt === expected.updatedAt && actual.status === expected.status, 'STALE_UNDO');
   return classify(current, undo.key, undo.before?.status ?? 'unclassified', metadata);
 }
-export function planLocalBackup(state, incoming) {
+export function planLocalBackup(state, incoming, { preferMarks = true } = {}) {
   const current = validateState(state);
   requireData(current.base === null && current.remote === null && current.attempt === null, 'IMPORT_REQUIRES_LOCAL_WORKSPACE');
   const local = validateDocument(current.document), remote = validateDocument(incoming);
   // Personal backup import does not import a cloud binding or synchronization Base.
   for (const document of [local, remote]) { document.data.datasetId = null; document.data.revisionId = null; }
-  return planMerge({ base: null, local, remote });
+  return planMerge({ base: null, local, remote, preferMarks });
 }
 export function mergeLocalBackup(state, incoming, expectedRevision, all = 'local') {
   const next = validateState(state);

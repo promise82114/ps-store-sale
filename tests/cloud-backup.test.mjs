@@ -3,7 +3,7 @@ import test from 'node:test';
 import { CloudBackup, accountUrl, validateCloudExport } from '../src/cloud-backup.mjs';
 import * as state from '../src/poc04/sync-state.mjs';
 import { exportBackup } from '../src/poc04/personal-data.mjs';
-import { a, b, id, mark, fixture } from './fixtures/poc04.mjs';
+import { a, b, id, mark, tombstone, fixture } from './fixtures/poc04.mjs';
 import { mockBackend, jsonResponse, deferred } from './fixtures/mock-drive.mjs';
 
 function harness(remote = null) {
@@ -72,10 +72,29 @@ for (const choice of ['local', 'remote']) test(`import conflict follows explicit
   assert.equal(h.local().document.data.datasetId, null); assert.equal(h.local().base, null);
   assert.deepEqual(h.backup(), h.original.document); assert.equal(h.backend.writes().length, 0);
 });
-test('cloud import preserves cancellation intent instead of silently reviving a mark', async () => {
+test('cloud import applies a remote mark over a local clear without a conflict and keeps recovery backup', async () => {
   const h = harness(fixture({ [a]: mark('tracked', 1) })); h.edit(a, 'unclassified', 2);
-  assert.equal((await h.cloud.preview('import')).conflicts[0].local, 'unclassified');
-  await h.cloud.confirm('local'); assert.ok(h.local().document.data.tombstones[a]);
+  const before = h.local();
+  assert.deepEqual((await h.cloud.preview('import')).conflicts, []);
+  assert.deepEqual(h.local(), before);
+  await h.cloud.confirm('local'); assert.equal(h.local().document.data.marks[a].status, 'tracked');
+  assert.deepEqual(h.backup(), before.document); assert.equal(h.backend.writes().length, 0);
+});
+
+test('cloud import hides equal marks and retains a local mark against an incoming clear', async () => {
+  const h = harness(fixture({ [a]: mark('tracked', 3) }));
+  assert.deepEqual((await h.cloud.preview('import')).conflicts, []);
+  await h.cloud.confirm('remote'); assert.equal(h.local().document.data.marks[a].status, 'tracked');
+  h.backend.files[0].document = fixture({}, { [a]: tombstone(4) });
+  assert.deepEqual((await h.cloud.preview('import')).conflicts, []);
+  await h.cloud.confirm('remote'); assert.equal(h.local().document.data.marks[a].status, 'tracked');
+});
+
+test('cloud export still requires explicit choice for a clear versus a mark', async () => {
+  const h = harness(fixture({ [a]: mark('tracked', 1) })); h.edit(a, 'unclassified', 2);
+  assert.equal((await h.cloud.preview('export')).conflicts[0].local, 'unclassified');
+  await h.cloud.confirm('local'); assert.ok(h.backend.files[0].document.data.tombstones[a]);
+  assert.ok(h.local().document.data.tombstones[a]);
 });
 for (const mode of ['import', 'export']) test(`${mode} rejects local edits after preview without losing new marks`, async () => {
   const h = harness(fixture()); await h.cloud.preview(mode); h.edit(b, 'ignored', 10);

@@ -73,7 +73,7 @@ export class CloudBackup {
       const remote = await this.#drive(context).read(); context.guard();
       if (mode === 'import' && !remote) return { empty: true, account: account.label };
       if (remote && mode === 'export') validateFile(remote.file, true);
-      const plan = planLocalBackup(local, remote?.document ?? createDocument());
+      const plan = planLocalBackup(local, remote?.document ?? createDocument(), { preferMarks: mode === 'import' });
       this.#pending = { mode, account, local, remote, plan, context };
       const counts = document => ({ tracked: Object.values(document.data.marks).filter(mark => mark.status === 'tracked').length,
         ignored: Object.values(document.data.marks).filter(mark => mark.status === 'ignored').length,

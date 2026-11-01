@@ -35,8 +35,9 @@ function validateOperations(documents) {
 }
 
 // base=null explicitly means first sync, never an inferred missing/deleted cloud file.
-export function planMerge({ base, local, remote }) {
+export function planMerge({ base, local, remote, preferMarks = false }) {
   requireData(base !== undefined, 'BASE_REQUIRED');
+  requireData(typeof preferMarks === 'boolean' && (!preferMarks || base === null), 'INVALID_MERGE_POLICY');
   const b = base === null ? null : validateDocument(base);
   const l = validateDocument(local), r = validateDocument(remote);
   if (b) {
@@ -53,7 +54,9 @@ export function planMerge({ base, local, remote }) {
     const bs = stateAt(b, key), ls = stateAt(l, key), rs = stateAt(r, key);
     if (bs) requireData(ls !== null && rs !== null, 'MISSING_DELETION_INTENT');
     let selected;
-    if (bs?.type === 'tombstone' && (ls?.type === 'mark' || rs?.type === 'mark')) {
+    // Manual import treats a cleared classification as unmarked and keeps the marked side.
+    if (preferMarks && ls && rs && ls.type !== rs.type) selected = ls.type === 'mark' ? ls : rs;
+    else if (bs?.type === 'tombstone' && (ls?.type === 'mark' || rs?.type === 'mark')) {
       // A stale pair of matching marks must not override a clear recorded in Base.
       conflicts.push({ key, reason: 'TOMBSTONE_VS_MARK', base: bs, local: ls, remote: rs });
       continue;

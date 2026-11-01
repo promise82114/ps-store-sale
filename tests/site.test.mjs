@@ -139,13 +139,43 @@ test('personal backup merge preserves independent marks, clear history and pendi
   assert.equal(Object.keys(merged.outbox).length, 3);
   assert.equal(state.validateState(merged).base, null);
 });
-test('personal backup conflicts follow the explicit choice and never silently resurrect a clear', () => {
+test('personal backup imports marked classifications over a local clear without a conflict', () => {
   const local = state.classify(state.classify(state.emptyState(), a, 'tracked', { changeId: id(1), updatedAt: 1 }),
     a, 'unclassified', { changeId: id(2), updatedAt: 2 });
   const incoming = fixture({ [a]: mark('ignored', 3) });
-  assert.equal(state.planLocalBackup(local, incoming).conflicts.length, 1);
-  assert.ok(state.mergeLocalBackup(local, incoming, local.localRevision, 'local').document.data.tombstones[a]);
-  assert.equal(state.mergeLocalBackup(local, incoming, local.localRevision, 'remote').document.data.marks[a].status, 'ignored');
+  assert.equal(state.planLocalBackup(local, incoming).conflicts.length, 0);
+  for (const choice of ['local', 'remote']) {
+    const merged = state.mergeLocalBackup(local, incoming, local.localRevision, choice);
+    assert.equal(merged.document.data.marks[a].status, 'ignored');
+    assert.equal(merged.document.data.tombstones[a], undefined);
+    assert.equal(merged.outbox[a].changeId, id(3));
+  }
+});
+
+test('personal backup comparison lists only different marks across all classification pairs', () => {
+  const statuses = ['absent', 'unclassified', 'tracked', 'ignored'];
+  for (const localStatus of statuses) for (const remoteStatus of statuses) {
+    const local = localStatus === 'absent' ? state.emptyState()
+      : state.classify(localStatus === 'unclassified'
+        ? state.classify(state.emptyState(), a, 'tracked', { changeId: id(10), updatedAt: 0 }) : state.emptyState(),
+      a, localStatus, { changeId: id(1), updatedAt: 1 });
+    const incoming = fixture(['tracked', 'ignored'].includes(remoteStatus) ? { [a]: mark(remoteStatus, 2) } : {},
+      remoteStatus === 'unclassified' ? { [a]: tombstone(2) } : {});
+    const before = structuredClone({ local, incoming });
+    const conflict = ['tracked', 'ignored'].includes(localStatus) && ['tracked', 'ignored'].includes(remoteStatus)
+      && localStatus !== remoteStatus;
+    assert.equal(state.planLocalBackup(local, incoming).conflicts.length, conflict ? 1 : 0, `${localStatus}/${remoteStatus}`);
+    for (const choice of ['local', 'remote']) {
+      const result = state.mergeLocalBackup(local, incoming, local.localRevision, choice);
+      const expected = conflict ? choice === 'local' ? localStatus : remoteStatus
+        : ['tracked', 'ignored'].includes(localStatus) ? localStatus
+          : ['tracked', 'ignored'].includes(remoteStatus) ? remoteStatus : 'unclassified';
+      assert.equal(result.document.data.marks[a]?.status ?? 'unclassified', expected, `${localStatus}/${remoteStatus}/${choice}`);
+      if (expected === 'unclassified' && [localStatus, remoteStatus].includes('unclassified')) assert.ok(result.document.data.tombstones[a]);
+      assert.equal(state.validateState(result).base, null);
+    }
+    assert.deepEqual({ local, incoming }, before);
+  }
 });
 test('personal import rejects a stale preview and never changes the input', () => {
   const local = state.emptyState(), incoming = fixture({ [a]: mark('tracked', 1) });

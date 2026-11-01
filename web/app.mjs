@@ -92,20 +92,26 @@ async function runCloud(work) {
   }
   finally { await refreshCloudRecord(); cloudBusy = false; renderCloud(); channel?.postMessage('cloud-changed'); }
 }
-function cloudPreview(result) {
+function renderBackupConflicts(prefix, conflicts, remoteLabel) {
   const names = new Map(savedCatalog.products.map(product => [product.key, product.name]));
+  const labels = { tracked: '追蹤', ignored: '忽略', unclassified: '取消標記' };
+  const label = value => labels[typeof value === 'string' ? value : value?.status ?? 'unclassified'];
+  $('#'+prefix+'-conflict-options').hidden = !conflicts.length;
+  $('#'+prefix+'-choice').value = 'local';
+  $('#'+prefix+'-conflict-count').textContent = `${format(conflicts.length)} 筆衝突`;
+  $('#'+prefix+'-conflict-options details').open = true;
+  $('#'+prefix+'-conflicts').replaceChildren(...conflicts.map(conflict => {
+    const item = document.createElement('li');
+    const name = names.get(conflict.key) ?? productInfos[conflict.key]?.name ?? conflict.key.split(':')[1];
+    item.textContent = `${name}：本機${label(conflict.local)} ／ ${remoteLabel}${label(conflict.remote)}`; return item;
+  }));
+}
+function cloudPreview(result) {
   $('#cloud-title').textContent = result.mode === 'import' ? '從雲端匯入' : '匯出到雲端';
   $('#cloud-account').textContent = `Google 帳號：${result.account}`;
-  $('#cloud-summary').textContent = result.mode === 'import' ? '比較後合併到本機，保留兩邊獨有標記。' : result.creating ? '尚無雲端存檔，確認後建立第一份備份。' : '比較後合併儲存到雲端，保留雲端獨有標記。';
+  $('#cloud-summary').textContent = result.mode === 'import' ? `${result.conflicts.length ? '只有不同標記列為衝突。' : '沒有標記衝突。'}確認匯入後，無標記的商品會採用另一邊的標記。` : result.creating ? '尚無雲端存檔，確認後建立第一份備份。' : '比較後合併儲存到雲端，保留雲端獨有標記。';
   for (const side of ['local', 'remote']) for (const type of ['tracked', 'ignored', 'cleared']) $('#cloud-'+side+'-'+type).textContent = format(result[side][type]);
-  $('#cloud-conflict-options').hidden = !result.conflicts.length;
-  $('#cloud-choice').value = 'local';
-  $('#cloud-conflict-count').textContent = `${format(result.conflicts.length)} 筆衝突`;
-  $('#cloud-conflicts').replaceChildren(...result.conflicts.map(conflict => {
-    const item = document.createElement('li'), labels = { tracked: '追蹤', ignored: '忽略', unclassified: '取消標記' };
-    const name = names.get(conflict.key) ?? productInfos[conflict.key]?.name ?? conflict.key.split(':')[1];
-    item.textContent = `${name}：本機${labels[conflict.local]} ／ 雲端${labels[conflict.remote]}`; return item;
-  }));
+  renderBackupConflicts('cloud', result.conflicts, '雲端');
   $('#cloud-confirm').textContent = result.mode === 'import' ? '確認合併匯入' : '確認匯出到雲端';
   $('#data-dialog').close(); $('#cloud-dialog').showModal();
 }
@@ -339,8 +345,9 @@ $('#import-file').addEventListener('change', async event => {
     const document = importBackup(await file.text()), snapshot = await store.read();
     const plan = planLocalBackup(snapshot, document);
     pendingImport = { document, revision: snapshot.localRevision };
-    $('#import-summary').textContent = `備份含 ${Object.keys(document.data.marks).length} 筆標記、${Object.keys(document.data.tombstones).length} 筆取消紀錄；有 ${plan.conflicts.length} 筆衝突需依下列選擇處理。`;
-    $('#import-choice').value = 'local'; $('#import-dialog').showModal();
+    $('#import-summary').textContent = `備份含 ${format(Object.keys(document.data.marks).length)} 筆標記；${plan.conflicts.length ? '只有不同標記列為衝突。' : '沒有標記衝突。'}`;
+    renderBackupConflicts('import', plan.conflicts, '備份');
+    $('#import-dialog').showModal();
   } catch { pendingImport = null; notice('無法匯入：檔案格式、版本或大小不符，或目前工作區不適合匯入。原資料保持不變。', true); }
 });
 $('#import-cancel').addEventListener('click', () => { pendingImport = null; $('#import-dialog').close(); });
