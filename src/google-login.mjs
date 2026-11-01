@@ -5,7 +5,8 @@ export class GoogleLogin {
   #auth; #generation = 0; #phase = 'idle'; #ready = false; #error = '';
   #controllers = new Set();
   constructor({ Auth, clientId, request = globalThis.fetch, onChange = () => {} } = {}) {
-    this.Auth = Auth; this.clientId = clientId; this.fetch = request; this.onChange = onChange;
+    // Browser fetch requires the global receiver even when stored on this instance.
+    this.Auth = Auth; this.clientId = clientId; this.fetch = request.bind(globalThis); this.onChange = onChange;
   }
   get sessionId() { return this.#generation; }
   get state() {

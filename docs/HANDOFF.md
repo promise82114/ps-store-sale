@@ -1,5 +1,12 @@
 # 正式頁面交接
 
+## 2026-11-02 已登入但雲端存檔顯示網路錯誤
+
+- 使用者回報登入正常、匯出顯示 NETWORK_ERROR。共用 GoogleAuth 負責登入；正式站另寫的 GoogleLogin.request 將原生 fetch 存成 instance method 後直接呼叫，帶入 GoogleLogin receiver，與瀏覽器要求的 global receiver 不符。修正為建構時綁定 globalThis；Client ID、scope、CSP、個人資料格式與雲端 If-Match 保護不變。
+- 既有 Google 登入測試新增模擬瀏覽器 receiver 限制的回歸，走預設 fetch 注入入口與真正 Drive transport，驗證裝置 A 建立、B 讀取並條件更新、A 再讀回。修正前重現 NETWORK_ERROR，修正後通過；模擬後端不連 Google，不讀寫使用者資料。
+- 本次工作目錄完整 Node 240 項通過，包含同時出現的其他匯入／合併修改；另以 HEAD 加上本次三個檔案的乾淨副本驗證 **237 項通過**、建置版本 ac0958506ebe8b60，確認此次發布不依賴其他修改。本次只提交 google-login.mjs、其測試及本段交接。沙箱預設 TEMP 的 rename 受限，測試改以 repo .local/test-temp 作為程序 TEMP／TMP 後通過，未改測試或安全設定。
+- 使用者提供的 Console 訊息只有 Built-In AI、GIS inline style CSP 與 COOP window.closed，沒有 Drive 請求錯誤。瀏覽器工具無法連上 Windows 本機預覽；本次未完成原生瀏覽器或真實 Google 讀寫驗收，不能宣稱已證實使用者帳號的唯一失敗原因。使用者已明確授權本次 commit & push；推送會觸發 Pages，部署結果另行核對，正式站發布後仍須驗證真實匯出／匯入。
+
 日期：2026-10-28（Asia/Taipei），目標 G:\git\ps-store-sale，Repo promise82114/ps-store-sale，main 基準 HEAD 6266081。POC 歷史及既有使用者資料保留。
 
 ## 2026-10-28 Google Drive 手動雲端存檔（最新）

@@ -3,6 +3,9 @@ import test from 'node:test';
 import { readFile } from 'node:fs/promises';
 import { runInNewContext } from 'node:vm';
 import { GoogleLogin } from '../src/google-login.mjs';
+import { createMockableDrive } from '../src/poc04/drive-transport.mjs';
+import { fixture, a, b, mark } from './fixtures/poc04.mjs';
+import { mockBackend } from './fixtures/mock-drive.mjs';
 
 const sharedSource = await readFile(new URL('../web/shared/google-auth.js', import.meta.url), 'utf8');
 const configSource = await readFile(new URL('../web/cloud-config.js', import.meta.url), 'utf8');
@@ -122,6 +125,31 @@ test('Drive facade supplies only in-memory credentials and strict network option
   assert.equal(captured.options.credentials, 'omit'); assert.equal(captured.options.redirect, 'error');
   assert.equal(captured.options.referrerPolicy, 'no-referrer'); assert.equal(captured.options.cache, 'no-store');
   assert.ok(!JSON.stringify(h.login.state).includes('synthetic-test-token')); h.login.disconnect();
+});
+
+test('default browser fetch retains its global receiver across device create, read and conditional update', async t => {
+  const backend = mockBackend();
+  // Node fetch and arrow mocks accept any receiver; browser fetch requires Window.
+  t.mock.method(globalThis, 'fetch', function (url, options) {
+    if (this !== globalThis) throw new TypeError('Illegal invocation');
+    return backend.request(url, options);
+  });
+  const first = await connectedHarness(), second = await connectedHarness();
+  try {
+    const drive = login => createMockableDrive({ request: (url, options) => login.request(url, options) });
+    const deviceA = drive(first.login), deviceB = drive(second.login);
+    await deviceA.write(fixture({ [a]: mark('tracked', 1) }), null);
+    const downloaded = await deviceB.read();
+    assert.equal(downloaded.document.data.marks[a].status, 'tracked');
+    const updated = structuredClone(downloaded.document);
+    updated.data.marks[b] = mark('ignored', 2);
+    await deviceB.write(updated, downloaded);
+    const refreshed = await deviceA.read();
+    assert.equal(refreshed.document.data.marks[a].status, 'tracked');
+    assert.equal(refreshed.document.data.marks[b].status, 'ignored');
+    assert.equal(backend.files.length, 1);
+    assert.equal(backend.writes()[1].headers['If-Match'], downloaded.file.etag);
+  } finally { first.login.disconnect(); second.login.disconnect(); }
 });
 for (const [name, url, options, code] of [
   ['other host', 'https://example.test/drive/v3/about', {}, 'INVALID_DRIVE_ENDPOINT'],
