@@ -1,5 +1,15 @@
 # 正式頁面交接
 
+## 2026-11-05 活動抓取診斷與 Actions 摘要
+
+- 使用者提供兩次同活動 `6a3fd66f-f063-4015-aecb-70776fa5e492` 的失敗 Artifact：Actions Run `41870836621` 在 offset=1056、Run `41873290594` 在 offset=552 收到 HTTP 200 加 GraphQL 錯誤；各保留 1056／552 筆，預期皆為 1278 筆。失敗位置不同，尚不能確認限流、固定商品或後端故障，舊 Artifact 沒有詳細錯誤內容。
+- 本次只補診斷與 HTTP 狀態傳遞，沒有調整重試、頁面大小、請求間隔、八分鐘預算或完整性保護。HTTP/client 的 failureCode 與 GraphQL 的 graphqlStatus 分開；第一頁及完整抓取的驗證錯誤帶回實際 HTTP、offset／size、attempt，完整模式另記 purpose 並傳遞到 sweep／總報告。
+- 新增安全摘要：最多 5 筆 GraphQL 錯誤，已知 extensions.code、固定訊息模板、最多 12 段允許的查詢欄位 path、data／category 是否存在、回應商品筆數及 SHA-256 截短指紋。未知 code／path 遮蔽，不保存原始訊息、任意 extensions、stack 或憑證；指紋僅供比較，不代表已判定根因。
+- manage-campaign.yml 增加 always() 的摘要步驟，從固定診斷目錄讀取報告、附 Artifact 入口；對未產生報告及 metadata-only 操作分別說明，明示抓取與部署結果不同。摘要步驟 continue-on-error，避免輔助報告失敗改變原業務成功／失敗；原抓取失敗仍阻擋保存與部署。
+- 回歸覆蓋安全遮蔽／輸出上限、HTTP 200 GraphQL 錯誤不重試、HTTP 層已分類錯誤的上下文、部分 data 不可發布、第一頁／完整模式 HTTP 狀態、JSON／Markdown／Actions 實際輸出、摘要追加、尚未抓取／純編輯／舊報告與動態頁面大小。未新增依賴或測試框架。
+- 完整 Node **249／249** 項通過（新增 9 項），靜態建置成功，既有 2243 商品及發布白名單不變，新模組語法與 diff 空白檢查通過。測試沿用程序 TEMP／TMP 指向 repo `.local/test-temp`，未變更系統設定。Workflow 接線已人工檢視；本機沒有 YAML parser，未做獨立 YAML 解析或遠端 Actions 驗收。
+- 使用者已於接續明確授權本批 commit／push 及核對 Pages 部署；推送只觸發 publish.yml，以已保存快照建置，不發出 PS Store 請求。活動抓取由使用者稍後手動重跑，新的管理 Run 才能取得實際診斷證據；舊報告不會自動補出已遺失內容。提交與部署結果以本次 Git／Actions 回報核對。
+
 ## 2026-11-02 已登入但雲端存檔顯示網路錯誤
 
 - 使用者回報登入正常、匯出顯示 NETWORK_ERROR。共用 GoogleAuth 負責登入；正式站另寫的 GoogleLogin.request 將原生 fetch 存成 instance method 後直接呼叫，帶入 GoogleLogin receiver，與瀏覽器要求的 global receiver 不符。修正為建構時綁定 globalThis；Client ID、scope、CSP、個人資料格式與雲端 If-Match 保護不變。

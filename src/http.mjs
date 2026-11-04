@@ -1,4 +1,5 @@
 import { setTimeout as sleep } from 'node:timers/promises';
+import { summarizeGraphqlErrors } from './fetch-diagnostics.mjs';
 
 export class DiagnosticError extends Error {
   constructor(code, stage, httpStatus = null) {
@@ -41,6 +42,9 @@ export function createClient(requests, { fetchImpl = fetch, wait = sleep, minimu
       if (Number.isSafeInteger(offset)) event.offset = offset;
       if (Number.isSafeInteger(size)) event.requestedSize = size;
       requests.push(event);
+      const failure = code => Object.assign(new DiagnosticError(code, stage, event.httpStatus),
+        Object.fromEntries(['attempt', 'offset', 'requestedSize', 'graphql'].filter(key => event[key] !== undefined)
+          .map(key => [key, event[key]])));
       let response, text;
       try {
         response = await fetchImpl(url, {
@@ -71,7 +75,7 @@ export function createClient(requests, { fetchImpl = fetch, wait = sleep, minimu
         event.durationMs = Date.now() - started;
         event.failureCode = error instanceof DiagnosticError ? error.code :
           ['TimeoutError', 'AbortError'].includes(error.name) ? 'TIMEOUT' : 'NETWORK_ERROR';
-        if (error instanceof DiagnosticError || attempt === 3) throw new DiagnosticError(event.failureCode, stage, event.httpStatus);
+        if (error instanceof DiagnosticError || attempt === 3) throw failure(event.failureCode);
         await wait(1000 * 2 ** (attempt - 1));
         continue;
       }
@@ -83,16 +87,20 @@ export function createClient(requests, { fetchImpl = fetch, wait = sleep, minimu
         try {
           const payload = JSON.parse(text);
           errorText = JSON.stringify({ errors: payload?.errors, message: payload?.message });
+          if (json) {
+            event.graphql = summarizeGraphqlErrors(payload);
+            event.graphqlStatus = event.graphql ? 'ERROR' : 'NO_ERRORS';
+          }
         } catch { errorText = text.slice(0, 8192); }
       }
       const problem = responseProblem(response.status, errorText, json ? contentType : '');
-      if (!problem) return { text, httpStatus: response.status };
+      if (!problem) return { text, httpStatus: response.status, attempt };
       event.failureCode = problem;
       if (['UPSTREAM_ERROR', 'RATE_LIMITED'].includes(problem) && attempt < 3) {
         const delay = problem === 'RATE_LIMITED' ? retryDelay(response.headers.get('retry-after')) : 1000 * 2 ** (attempt - 1);
         if (delay !== null) { await wait(delay); continue; }
       }
-      throw new DiagnosticError(problem, stage, response.status);
+      throw failure(problem);
     }
   };
 }

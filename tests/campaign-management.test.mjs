@@ -8,6 +8,7 @@ import { campaignById, parseCampaignId, taiwanDateTime, validateRegistry, campai
 import { buildCatalog, catalogForDisplay, validateCatalog } from '../src/catalog.mjs';
 import { loadSavedState, manageCampaign, rebuildSavedCatalog } from '../src/campaign-store.mjs';
 import { currentCampaigns } from './fixtures/campaigns.mjs';
+import { writeCampaignSummary } from '../tools/campaign-summary.mjs';
 
 const newId = '11111111-2222-4333-8444-555555555555';
 const input = { operation: 'add', id: newId, name: '週末活動', startsAt: '2026-10-25 00:00', endsAt: '2026-10-28 00:00' };
@@ -155,4 +156,30 @@ test('registry rejects duplicate IDs and reversed periods', () => {
   assert.throws(() => validateRegistry({ schemaVersion: 1, campaigns: [currentCampaigns[0], currentCampaigns[0]] }));
   assert.throws(() => validateRegistry({ schemaVersion: 1, campaigns: [{ ...currentCampaigns[0],
     startsAt: '2026-10-26T00:00:00.000Z', endsAt: '2026-10-25T00:00:00.000Z' }] }));
+});
+
+test('Actions summary distinguishes metadata-only success from failures before fetch diagnostics exist', async t => {
+  const { artifacts } = await setup(t);
+  for (const operation of ['edit', 'archive', 'restore']) {
+    const summary = await writeCampaignSummary({ directory: artifacts, env: { CAMPAIGN_OPERATION: operation, CAMPAIGN_OUTCOME: 'success' } });
+    assert.match(summary, /未執行商品抓取/); assert.match(summary, /不代表部署已成功/);
+    assert.doesNotMatch(summary, /診斷 Artifact/);
+  }
+  for (const outcome of ['failure', 'skipped', 'cancelled']) {
+    const summary = await writeCampaignSummary({ directory: artifacts,
+      env: { CAMPAIGN_OPERATION: 'add', CAMPAIGN_OUTCOME: outcome } });
+    assert.match(summary, /尚未產生抓取報告/); assert.match(summary, /輸入驗證/);
+    assert.doesNotMatch(summary, /未執行商品抓取/);
+  }
+});
+
+test('Actions summary accepts legacy reports and does not mistake complete fetches for successful deployments', async t => {
+  const { artifacts } = await setup(t), reportDirectory = new URL(`2026-11-05T00-00-00-000Z/${newId}/`, artifacts);
+  await mkdir(reportDirectory, { recursive: true });
+  await writeFile(new URL('fetch-report.json', reportDirectory), JSON.stringify({
+    complete: true, uniqueProductCount: 5, reportedTotalCount: 5, requests: [], retryCount: 0, error: null,
+  }));
+  const summary = await writeCampaignSummary({ directory: artifacts, env: { CAMPAIGN_OPERATION: 'add', CAMPAIGN_OUTCOME: 'success' } });
+  assert.match(summary, /完整驗證通過/); assert.match(summary, /5 \/ 5/); assert.match(summary, /不代表部署已成功/);
+  assert.doesNotMatch(summary, /部署成功/);
 });

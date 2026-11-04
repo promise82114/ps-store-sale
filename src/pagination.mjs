@@ -1,5 +1,6 @@
 import { apiUrl, pageSize, saleId, validatePage } from './diagnostic.mjs';
 import { DiagnosticError } from './http.mjs';
+import { diagnosticErrorInfo } from './fetch-diagnostics.mjs';
 
 export const fullFetchLimits = { maxPages: 500, maxSweeps: 2, maxDurationMs: 8 * 60 * 1000 };
 
@@ -7,11 +8,12 @@ export async function readPage(get, hash, offset, size, pages, { purpose = 'fetc
   const started = Date.now();
   const record = { purpose, expectedOffset: offset, requestedSize: size, offset: null, size: null,
     totalCount: null, isLast: null, returnedProductCount: null, httpStatus: null,
-    durationMs: null, validated: false, failureCode: null };
+    durationMs: null, validated: false, failureCode: null, attempt: null };
   pages.push(record);
   try {
     const response = await get(apiUrl(hash, offset, size, expectedSaleId), 'graphql-page', { json: true, offset, size, deadlineAt });
     record.httpStatus = response.httpStatus;
+    record.attempt = response.attempt ?? null;
     let payload;
     try { payload = JSON.parse(response.text); }
     catch { throw new DiagnosticError('INVALID_JSON', 'graphql-page', response.httpStatus); }
@@ -23,12 +25,22 @@ export async function readPage(get, hash, offset, size, pages, { purpose = 'fetc
       if (typeof grid.pageInfo?.isLast === 'boolean') record.isLast = grid.pageInfo.isLast;
       if (Array.isArray(grid.products)) record.returnedProductCount = grid.products.length;
     }
-    const page = validatePage(payload, { offset, requestedSize: size, deriveProductUrls: true, expectedTotalCount, expectedSaleId });
+    const page = validatePage(payload, { offset, requestedSize: size, deriveProductUrls: true, expectedTotalCount, expectedSaleId,
+      httpStatus: response.httpStatus, attempt: record.attempt });
     record.validated = true;
     return page;
   } catch (error) {
     record.failureCode = error instanceof DiagnosticError ? error.code : 'INTERNAL_ERROR';
     record.httpStatus ??= error.httpStatus ?? null;
+    if (error instanceof DiagnosticError) {
+      error.httpStatus ??= record.httpStatus;
+      error.offset = offset;
+      error.requestedSize = size;
+      error.purpose = purpose;
+      error.attempt ??= record.attempt;
+      record.attempt = error.attempt;
+      if (error.graphql) record.graphql = error.graphql;
+    }
     throw error;
   } finally {
     record.durationMs = Date.now() - started;
@@ -114,7 +126,7 @@ export async function fetchFullActivity(get, hash, report, options = {}) {
         products: [...products.values()] };
     } catch (error) {
       const failure = error instanceof DiagnosticError ? error : new DiagnosticError('INTERNAL_ERROR', 'pagination');
-      sweep.error = { code: failure.code, stage: failure.stage, httpStatus: failure.httpStatus };
+      sweep.error = diagnosticErrorInfo(failure);
       if (sweep.boundaryVerification === 'RUNNING') sweep.boundaryVerification = 'FAIL';
       publishCounts();
       if (['TOTAL_COUNT_CHANGED', 'BOUNDARY_CHANGED'].includes(failure.code) && attempt < limits.maxSweeps && Date.now() < deadlineAt) continue;

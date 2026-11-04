@@ -1,6 +1,7 @@
 import { DiagnosticError, responseProblem } from './http.mjs';
 import { buildQuery, publicDefinitions } from './query.mjs';
 import { campaignById, campaignByUrl } from './campaigns.mjs';
+import { summarizeGraphqlErrors } from './fetch-diagnostics.mjs';
 
 export const saleId = '10f8c20b-f1b4-4814-ad6a-acb122e4ab04';
 export const locale = 'zh-hant-tw';
@@ -56,8 +57,9 @@ export function apiUrl(sha256Hash, offset = 0, size = pageSize, targetSaleId = s
 }
 
 export function validatePage(payload, { offset = 0, requestedSize = pageSize, firstPageOnly = false,
-  deriveProductUrls = false, expectedTotalCount = null, expectedSaleId = saleId } = {}) {
-  const fail = code => { throw new DiagnosticError(code, firstPageOnly ? 'first-page-validation' : 'page-validation'); };
+  deriveProductUrls = false, expectedTotalCount = null, expectedSaleId = saleId, httpStatus = null, attempt = null } = {}) {
+  const fail = code => { throw Object.assign(new DiagnosticError(code, firstPageOnly ? 'first-page-validation' : 'page-validation', httpStatus),
+    { offset, requestedSize, attempt, graphql: summarizeGraphqlErrors(payload) }); };
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) fail('SCHEMA_MISMATCH');
   if (payload.errors !== undefined) {
     if (!Array.isArray(payload.errors)) fail('SCHEMA_MISMATCH');
@@ -110,6 +112,6 @@ export function validatePage(payload, { offset = 0, requestedSize = pageSize, fi
     duplicateProductCount: products.length - uniqueProductCount, products };
 }
 
-export function validateFirstPage(payload, expectedSaleId = saleId) {
-  return validatePage(payload, { firstPageOnly: true, expectedSaleId });
+export function validateFirstPage(payload, expectedSaleId = saleId, context = {}) {
+  return validatePage(payload, { ...context, firstPageOnly: true, expectedSaleId });
 }

@@ -80,6 +80,10 @@
 
 每個新活動仍做完整分頁、首尾重驗及有界重試；請求至少間隔 750ms。遇封鎖、認證或結構異常停止，保留既有完整資料，不使用登入憑證繞過。診斷 Artifact 保留 7 天；正式快照保存在 Git，不依賴 Artifact 保存期限。
 
+管理 Run 的 Summary 會顯示抓取結果、已取得／預期筆數、失敗頁碼與 offset／size、HTTP 狀態、請求用途、嘗試／重試次數及 Artifact 入口；尚未開始抓取或只編輯已保存資料時也會說明。抓取成功不代表後續保存或部署已成功，仍須查看各 job 結果。
+
+`fetch-report.json` 與 `POC_REPORT.md` 保留安全的 GraphQL 錯誤摘要：最多 5 筆錯誤、已知 code、固定訊息模板、最多 12 段允許的查詢欄位 path、回應是否含 data／活動／商品筆數及錯誤指紋。未知 code／path 遮蔽，原始訊息與其他 extensions 不輸出。HTTP 請求的 `failureCode` 與 GraphQL 的 `graphqlStatus` 分開記錄；HTTP 200 仍可能是 GraphQL 失敗。本次僅增加診斷，一般 `GRAPHQL_ERROR` 維持不重試，等取得實際錯誤再調整策略；失敗頁即使帶有商品資料也不接受為完整快照。
+
 活動清單由使用者透過 Actions 新增／更新。早期三份缺正式名稱與期間的暫填資料曾清空，原資料仍可從 99ff16b 還原；目前已由使用者重新登錄正式活動，新增不會重抓其他活動。
 
 ## Google 登入與雲端存檔

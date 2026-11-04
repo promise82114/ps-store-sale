@@ -4,6 +4,7 @@ import { createClient, DiagnosticError } from './http.mjs';
 import { apiUrl, defaultUrl, discoverQuery, endpoint, locale, saleId, validateFirstPage, validateSaleUrl } from './diagnostic.mjs';
 import { fetchFullActivity } from './pagination.mjs';
 import { campaignByUrl } from './campaigns.mjs';
+import { diagnosticErrorInfo, fetchSummary } from './fetch-diagnostics.mjs';
 
 const filenames = ['first-page-products.json', 'sale-products.json', 'partial-products.json'];
 
@@ -32,6 +33,8 @@ function readableReport(report) {
   ];
   let text = '# PS Store POC-01 diagnostic\n\n| Field | Value |\n|---|---|\n' +
     rows.map(([key, value]) => `| ${key} | ${value} |`).join('\n') + '\n\n';
+  text += '## 抓取摘要\n\n' + fetchSummary(report) + '\n';
+  text += 'Request failureCode describes HTTP/client failures; graphqlStatus separately describes GraphQL errors.\n\n';
   text += 'PASS is limited to this POC and selected mode. Local execution does not establish GitHub-hosted access.\n';
   text += 'Full success requires all pages, unique count matching the current total, and stable first/last-page revalidation.\n';
   text += 'This checks consistency signals; the API does not provide a point-in-time snapshot guarantee.\n';
@@ -100,8 +103,9 @@ export async function runDiagnostic({ args = process.argv.slice(2), env = proces
         const response = await get(apiUrl(query.sha256Hash, 0, 24, selected.id), 'graphql-first-page', { json: true, offset: 0, size: 24 });
         let payload;
         try { payload = JSON.parse(response.text); }
-        catch { throw new DiagnosticError('INVALID_JSON', 'graphql-first-page', response.httpStatus); }
-        const firstPage = validateFirstPage(payload, selected.id);
+        catch { throw Object.assign(new DiagnosticError('INVALID_JSON', 'graphql-first-page', response.httpStatus),
+          { offset: 0, requestedSize: 24, attempt: response.attempt }); }
+        const firstPage = validateFirstPage(payload, selected.id, { httpStatus: response.httpStatus, attempt: response.attempt });
         report.firstPageValidation = 'PASS';
         const { products, ...counts } = firstPage;
         Object.assign(report, counts, { pageCount: 1 });
@@ -115,7 +119,7 @@ export async function runDiagnostic({ args = process.argv.slice(2), env = proces
   } catch (error) {
     const failure = error instanceof DiagnosticError ? error : new DiagnosticError('INTERNAL_ERROR', 'runtime');
     report.complete = false;
-    report.error = { code: failure.code, stage: failure.stage, httpStatus: failure.httpStatus };
+    report.error = diagnosticErrorInfo(failure);
     if (report.mode === 'full') report.fullValidation = 'FAIL';
     if (report.mode === 'first-page' || (report.mode === 'full' && report.firstPageValidation === 'NOT_RUN')) report.firstPageValidation = 'FAIL';
     report.conclusion = ['NETWORK_ERROR', 'TIMEOUT', 'UPSTREAM_ERROR', 'RATE_LIMITED', 'EMPTY_CATEGORY',

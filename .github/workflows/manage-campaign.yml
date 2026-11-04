@@ -93,6 +93,13 @@ jobs:
           path: artifacts/campaign-management/
           retention-days: 7
           if-no-files-found: ignore
+      - name: Publish campaign diagnostic summary
+        if: always()
+        continue-on-error: true
+        env:
+          CAMPAIGN_OPERATION: ${{ inputs.operation }}
+          CAMPAIGN_OUTCOME: ${{ steps.manage.outcome }}
+        run: node tools/campaign-summary.mjs
   deploy:
     needs: manage
     runs-on: ubuntu-latest

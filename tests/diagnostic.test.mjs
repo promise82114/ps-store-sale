@@ -6,6 +6,7 @@ import { apiUrl, defaultUrl, discoverQuery, saleId, scriptUrls, validateFirstPag
 import { createClient, DiagnosticError, responseProblem, retryDelay } from '../src/http.mjs';
 import { buildQuery, publicDefinitions } from '../src/query.mjs';
 import { currentCampaigns } from './fixtures/campaigns.mjs';
+import { summarizeGraphqlErrors } from '../src/fetch-diagnostics.mjs';
 
 const fixture = readFileSync(new URL('./fixtures/category-query.graphql', import.meta.url), 'utf8');
 const expectedHash = '88c0b9a1273c6d320c51cd73e390924e21ae28bf09f01cde8b84b1034b16cd03';
@@ -165,6 +166,68 @@ test('GraphQL errors fail even when a partial data object is present', () => {
   fails(() => validateFirstPage(data), 'QUERY_UNAVAILABLE');
   data.errors = [{ message: 'other failure' }];
   fails(() => validateFirstPage(data), 'GRAPHQL_ERROR');
+});
+
+test('GraphQL diagnostics retain only allowlisted codes, fields and fixed message templates', () => {
+  const secret = 'private-npsso-token@example.test';
+  const data = { data: { categoryGridRetrieve: { products: [null] } }, errors: [
+    { message: `Cannot return null for non-nullable field Product.price. Bearer ${secret}\n|<script>`,
+      path: ['categoryGridRetrieve', 'products', 0, 'price', secret],
+      extensions: { code: 'INTERNAL_SERVER_ERROR', token: secret, stacktrace: [secret] } },
+    { message: `https://example.test/?token=${secret}`, extensions: { code: secret } },
+    null,
+  ] };
+  const before = structuredClone(data), result = summarizeGraphqlErrors(data);
+  assert.equal(result.errorCount, 3);
+  assert.equal(result.dataPresent, true); assert.equal(result.categoryPresent, true);
+  assert.equal(result.returnedProductCount, 1);
+  assert.deepEqual(result.errors[0].path, ['categoryGridRetrieve', 'products', 0, 'price', '[REDACTED]']);
+  assert.equal(result.errors[0].code, 'INTERNAL_SERVER_ERROR');
+  assert.equal(result.errors[0].message, 'Non-nullable field returned null');
+  assert.equal(result.errors[1].code, 'UNRECOGNIZED');
+  assert.equal(result.errors[1].message, 'Message omitted');
+  assert.match(result.errors[0].fingerprint, /^[a-f0-9]{16}$/);
+  assert.deepEqual(summarizeGraphqlErrors(data), result);
+  assert.notEqual(result.errors[0].fingerprint, result.errors[1].fingerprint);
+  assert.equal(JSON.stringify(result).includes(secret), false);
+  assert.equal(JSON.stringify(result).includes('<script>'), false);
+  assert.deepEqual(data, before);
+});
+
+test('GraphQL diagnostic limits cap errors and paths and tolerate malformed error entries', () => {
+  for (const value of [null, {}, { errors: [] }, { errors: 'invalid' }]) assert.equal(summarizeGraphqlErrors(value), null);
+  const result = summarizeGraphqlErrors({ errors: Array.from({ length: 8 }, () => ({ path: Array(20).fill('products') })) });
+  assert.equal(result.errorCount, 8); assert.equal(result.omittedErrorCount, 3);
+  assert.equal(result.errors.length, 5); assert.equal(result.errors[0].path.length, 12);
+  assert.equal(result.errors[0].pathTruncated, true);
+  assert.equal(result.dataPresent, false); assert.equal(result.categoryPresent, false);
+  assert.equal(result.returnedProductCount, null);
+});
+
+test('HTTP 200 GraphQL failures remain separate from transport success and are not retried', async () => {
+  const events = [];
+  const get = createClient(events, { wait: noWait, fetchImpl: async () => response(JSON.stringify({
+    errors: [{ message: 'Internal server error: private-cookie', extensions: { code: 'INTERNAL_SERVER_ERROR' } }], data: null,
+  })) });
+  const result = await get(apiUrl(expectedHash), 'graphql-page', { json: true, offset: 552, size: 24 });
+  assert.equal(events.length, 1); assert.equal(result.attempt, 1);
+  assert.equal(events[0].httpStatus, 200); assert.equal(events[0].failureCode, null);
+  assert.equal(events[0].graphqlStatus, 'ERROR');
+  assert.equal(events[0].graphql.errors[0].code, 'INTERNAL_SERVER_ERROR');
+  assert.equal(JSON.stringify(events).includes('private-cookie'), false);
+});
+
+test('client-classified GraphQL errors retain safe diagnostics, HTTP and request context', async () => {
+  const events = [], get = createClient(events, { wait: noWait, fetchImpl: async () => response(JSON.stringify({
+    errors: [{ message: 'PersistedQueryNotFound private-cookie', extensions: { code: 'PersistedQueryNotFound' } }],
+  })) });
+  await assert.rejects(get(apiUrl(expectedHash), 'graphql-page', { json: true, offset: 24, size: 24 }), error => {
+    assert.equal(error.code, 'QUERY_UNAVAILABLE'); assert.equal(error.httpStatus, 200);
+    assert.equal(error.offset, 24); assert.equal(error.requestedSize, 24); assert.equal(error.attempt, 1);
+    assert.equal(error.graphql.errors[0].code, 'PersistedQueryNotFound');
+    assert.equal(JSON.stringify(error).includes('private-cookie'), false); return true;
+  });
+  assert.equal(events.length, 1);
 });
 
 test('HTTP/API failure reasons distinguish access, authentication, query and schema boundaries', () => {

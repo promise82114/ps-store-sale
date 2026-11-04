@@ -12,6 +12,8 @@ import { fetchFullActivity, readPage } from '../src/pagination.mjs';
 import { runDiagnostic } from '../src/runner.mjs';
 import { currentCampaigns } from './fixtures/campaigns.mjs';
 import { buildCatalog, priceNumber, selectProducts } from '../src/catalog.mjs';
+import { writeCampaignSummary } from '../tools/campaign-summary.mjs';
+import { fetchSummary } from '../src/fetch-diagnostics.mjs';
 
 
 function campaignSource(campaign, index) {
@@ -338,6 +340,77 @@ test('persistent server errors stop after the retry cap and retain partial diagn
   assert.equal(report.requests.filter(request => request.offset === 24).length, 3);
   assert.equal((await readJson(output, 'partial-products.json')).complete, false);
   assert.equal((await readdir(output)).includes('sale-products.json'), false);
+});
+
+test('HTTP 200 GraphQL page failures keep status and safe context across all reports without publishing partial data', async t => {
+  const root = await outputDirectory(t), output = new URL(`2026-11-05T00-00-00-000Z/${saleId}/`, root);
+  const secret = 'private-cookie-do-not-log';
+  const broken = payload(24, 48);
+  broken.errors = [{ message: `Internal server error ${secret} | <script>`,
+    path: ['categoryGridRetrieve', 'products', 0, 'price'], extensions: { code: 'INTERNAL_SERVER_ERROR', debug: secret } }];
+  const { report, exitCode } = await runDiagnostic({ args: ['--mode', 'full'], env: {}, output,
+    clientOptions: { wait: noWait, fetchImpl: mockFetch(48, ({ offset }) => offset === 24 ? response(broken) : null) } });
+  assert.equal(exitCode, 1); assert.equal(report.complete, false); assert.equal(report.retryCount, 0);
+  assert.equal(report.firstPageValidation, 'PASS'); assert.equal(report.fullValidation, 'FAIL');
+  assert.equal(report.error.code, 'GRAPHQL_ERROR'); assert.equal(report.error.httpStatus, 200);
+  assert.equal(report.error.offset, 24); assert.equal(report.error.requestedSize, 24);
+  assert.equal(report.error.attempt, 1); assert.equal(report.error.purpose, 'fetch');
+  assert.equal(report.error.graphql.dataPresent, true); assert.equal(report.error.graphql.returnedProductCount, 24);
+  const sweep = report.sweeps[0], page = sweep.pages.at(-1), request = report.requests.at(-1);
+  assert.equal(report.sweeps.length, 1); assert.equal(sweep.boundaryVerification, 'NOT_RUN');
+  assert.deepEqual(sweep.error, report.error);
+  assert.deepEqual(page.graphql, report.error.graphql); assert.equal(page.httpStatus, 200);
+  assert.equal(request.graphqlStatus, 'ERROR'); assert.equal(request.failureCode, null);
+  assert.equal(report.requests.filter(event => event.offset === 24).length, 1);
+  assert.equal((await readJson(output, 'partial-products.json')).products.length, 24);
+  assert.equal((await readdir(output)).includes('sale-products.json'), false);
+  assert.deepEqual((await readJson(output, 'fetch-report.json')).error, report.error);
+  const markdown = await readFile(new URL('POC_REPORT.md', output), 'utf8');
+  assert.match(markdown, /HTTP 200/); assert.match(markdown, /INTERNAL_SERVER_ERROR/);
+  assert.match(markdown, /categoryGridRetrieve.products.0.price/);
+  const summaryFile = new URL('summary.md', root);
+  await writeFile(summaryFile, 'Existing summary\n');
+  const summary = await writeCampaignSummary({ directory: root, env: {
+    GITHUB_STEP_SUMMARY: summaryFile, CAMPAIGN_OPERATION: 'add', CAMPAIGN_OUTCOME: 'failure',
+    GITHUB_REPOSITORY: 'example/repo', GITHUB_RUN_ID: '123', GITHUB_RUN_ATTEMPT: '2',
+  } });
+  assert.match(summary, /24 \/ 48/); assert.match(summary, /2 \/ 24 \/ 24/);
+  assert.match(summary, /HTTP 狀態 \| 200/); assert.match(summary, /INTERNAL_SERVER_ERROR/);
+  assert.match(summary, /campaign-operation-123-2/);
+  assert.match(summary, /https:\/\/github.com\/example\/repo\/actions\/runs\/123#artifacts/);
+  assert.equal(await readFile(summaryFile, 'utf8'), 'Existing summary\n' + summary);
+  assert.equal(summary.includes(secret), false); assert.equal(summary.includes('<script>'), false);
+  for (const filename of await readdir(output)) {
+    const text = await readFile(new URL(filename, output), 'utf8');
+    assert.equal(text.includes(secret), false); assert.equal(text.includes('<script>'), false);
+  }
+});
+
+test('first-page GraphQL and schema failures retain HTTP 200 with request context', async t => {
+  for (const code of ['GRAPHQL_ERROR', 'SCHEMA_MISMATCH', 'INVALID_JSON']) {
+    const output = await outputDirectory(t);
+    const body = code === 'INVALID_JSON' ? 'not JSON' : code === 'SCHEMA_MISMATCH' ? { data: null }
+      : { data: null, errors: [{ message: 'private detail', extensions: { code: 'INTERNAL_SERVER_ERROR' } }] };
+    const { report, exitCode } = await runDiagnostic({ args: ['--mode', 'first-page'], env: {}, output,
+      clientOptions: { wait: noWait, fetchImpl: mockFetch(24, () => response(body)) } });
+    assert.equal(exitCode, 1); assert.equal(report.error.code, code); assert.equal(report.error.httpStatus, 200);
+    assert.equal(report.error.offset, 0); assert.equal(report.error.requestedSize, 24); assert.equal(report.error.attempt, 1);
+    assert.equal(report.retryCount, 0); assert.equal(report.firstPageValidation, 'FAIL');
+    assert.equal((await readdir(output)).includes('first-page-products.json'), false);
+    assert.equal((await readFile(new URL('fetch-report.json', output), 'utf8')).includes('private detail'), false);
+  }
+});
+
+test('failure summary uses actual page order when effective page sizes shrink', async () => {
+  const report = {};
+  await assert.rejects(fetchFullActivity(jsonGet(({ pageArgs }) => pageArgs.offset === 18
+    ? { errors: [{ message: 'Internal server error' }] }
+    : payload(pageArgs.offset, 30, pageArgs.offset === 0 ? 12 : 6)), hash, report), error => {
+    report.error = { code: error.code, stage: error.stage, httpStatus: error.httpStatus,
+      offset: error.offset, requestedSize: error.requestedSize };
+    return error.code === 'GRAPHQL_ERROR';
+  });
+  assert.match(fetchSummary(report), /3 \/ 18 \/ 6/);
 });
 
 test('failed boundary revalidation cannot publish complete JSON even when all products were fetched', async t => {
